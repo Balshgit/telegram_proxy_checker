@@ -1,0 +1,189 @@
+[project]
+name = "telegram_proxy_checker"
+version = "0.1.0"
+description = "API for proxy check"
+requires-python = ">=3.14"
+
+dependencies = [
+    "fastapi>=0.141",
+    "dependency-injector>=4.49",
+    "sqlalchemy>=2.0",
+    "asyncpg>=0.31",
+    "pydantic>=2.13",
+    "pydantic-settings>=2.15",
+    "python-dotenv>=1.2",
+    "python-multipart>=0.0.32",
+    "loguru>=0.7",
+    "greenlet>=3.5",
+    "httpx>=0.28",
+    "pydantic-settings>=2.15",
+    "pydantic-string-url>=1.0",
+    "uvicorn>=0.52",
+    "taskiq<=0.12",
+    "taskiq-aio-pika>=0.6",
+    "sqlalchemy-utils>=0.42",
+    "sqlakeyset>=2.0",
+    "tenacity>=9.1",
+    "orjson>=3.11",
+    "cachetools>=7.1.4",
+    "python-telegram-bot>=22.8",
+]
+
+[dependency-groups]
+dev = [
+    "black>=25.1.0",
+    "coverage>=7.8.1",
+    "flake8>=7.2.0",
+    "import-linter>=2.3",
+    "lefthook>=1.11.12",
+    "mypy>=1.15.0",
+    "polyfactory>=2.21.0",
+    "pytest>=8.3.5",
+    "pytest-asyncio>=0.26.0",
+    "pytest-clarity>=1.0.1",
+    "pytest-cov>=6.1.1",
+    "pytest-flakefinder>=1.1.0",
+    "pytest-freezer>=0.4.9",
+    "pytest-mock>=3.14.1",
+    "pytest-randomly>=3.16.0",
+    "pytest-repeat>=0.9.4",
+    "pytest-replay>=1.6.0",
+    "pytest-sugar>=1.0.0",
+    "pytest-timeouts>=1.2.1",
+    "pytest-split>=0.10",
+    "pytest-rerunfailures>=16.1",
+    "responses>=0.25.8",
+    "respx>=0.22.0",
+    "ruff>=0.11.11",
+    "testcontainers[mysql]>=4.10.0",
+    "types-bleach>=6.2.0.20250809",
+    "types-pymysql>=1.1.0.20250916",
+    "types-python-dateutil>=2.9.0.20250516",
+    "uuid-utils>=0.11.0",
+]
+
+
+[tool.poetry]
+[[tool.poetry.source]]
+name = "pypi"
+url = "https://pypi.org/simple"
+default = true
+
+
+[tool.ruff]
+lint.extend-select = ["F", "I", "PL", "E", "W", "C4", "PT", "B", "T10", "SIM", "TID", "T20", "PGH", "S", "RET", "ERA", "PIE", "UP", "ASYNC", "ISC", "PERF", "DTZ", "TRY", "C90"]
+lint.ignore = ["S105", "S106", "S324", "PGH003", "TRY003", "TRY004", "PT001", "PT023", "ASYNC109", "PLR0912", "PLC0206"]
+line-length = 120
+output-format="concise"
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["S101", "PLR2004", "PLR0913"]
+"app/core/producing/models.py" = ["DTZ001"]
+"app/core/producing/services.py" = ["C901", "PLR0911", "PLR0915"]
+
+[tool.ruff.lint.pylint]
+max-args = 15
+# max-statements = 50
+
+[tool.ruff.lint.flake8-bugbear]
+# Allow default arguments like, e.g., `data: List[str] = fastapi.Query(None)`.
+extend-immutable-calls = [
+    "fastapi.Depends", "fastapi.Query", "fastapi.Body", "fastapi.File", "fastapi.Cookie", "fastapi.HTTPBearer",
+    "fastapi.Header", "fastapi.Security", "fastapi.Path", "app.api.versioning.APIVersioning", "app.api.openapi.clean_doc",
+    "fastapi.Form"]
+
+[tool.ruff.lint.flake8-pytest-style]
+parametrize-names-type = "csv"
+
+[tool.ruff.lint.mccabe]
+max-complexity = 15
+
+[tool.ruff.lint.isort]
+force-wrap-aliases = true
+combine-as-imports = true
+
+[tool.ruff.lint.flake8-quotes]
+inline-quotes = "double"
+
+[tool.black]
+line-length = 120
+target-version = ['py314']
+
+[tool.coverage.run]
+relative_files = true
+concurrency = ["thread"]
+
+[tool.coverage.report]
+sort = "cover"
+skip_covered = true
+
+[tool.mypy]
+python_version = "3.14"
+plugins = [
+    "pydantic.mypy"
+]
+# Mypy configuration:
+# https://mypy.readthedocs.io/en/latest/config_file.html
+allow_redefinition = false
+namespace_packages = true
+check_untyped_defs = true
+disallow_untyped_decorators = false
+disallow_any_explicit = false
+disallow_any_generics = true
+disallow_untyped_calls = true
+disallow_untyped_defs = true
+ignore_errors = false
+ignore_missing_imports = true
+implicit_reexport = false
+local_partial_types = true
+strict_optional = true
+strict_equality = true
+show_error_codes = true
+no_implicit_optional = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+warn_unused_configs = true
+warn_unreachable = true
+warn_no_return = true
+exclude = [
+    ".venv",
+    "tests/integration/*",
+    "tests/unit/*",
+]
+
+[[tool.mypy.overrides]]
+module = "app.infra.sqlalchemy.engines"
+disable_error_code = ["index"]
+
+[[tool.mypy.overrides]]
+module = "app.main"
+disable_error_code = ["unreachable"]
+
+[tool.pydantic-mypy]
+init_forbid_extra = true
+init_typed = true
+warn_required_dynamic_aliases = true
+
+[tool.pytest.ini_options]
+filterwarnings = [
+    "ignore::pytest.PytestUnraisableExceptionWarning",
+]
+asyncio_mode = "auto"
+asyncio_default_test_loop_scope = "session"
+asyncio_default_fixture_loop_scope = "session"
+
+[tool.importlinter]
+root_package = "app"
+include_external_packages = true
+
+[[tool.importlinter.contracts]]
+name = "core cannot depend on api"
+type = "forbidden"
+source_modules = ["app.core"]
+forbidden_modules = ["app.api"]
+
+[[tool.importlinter.contracts]]
+name = "infra cannot depend on api"
+type = "forbidden"
+source_modules = ["app.infra"]
+forbidden_modules = ["app.api"]

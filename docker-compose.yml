@@ -1,0 +1,67 @@
+volumes:
+  postgres_db_data:
+
+networks:
+  prc_network:
+    name:
+      "prc_network"
+    ipam:
+      config:
+        - subnet: 200.10.0.0/24
+
+services:
+  postgres_db:
+    image: "docker-registry.x5.ru/postgres:17.9"
+    container_name: "postgres_db"
+    restart: unless-stopped
+    profiles: [ "app", "db" ]
+    networks:
+      prc_network:
+        ipv4_address: 200.10.0.10
+    volumes:
+      - postgres_db_data:/var/lib/postgressql/data
+    env_file: settings/.envs/.env
+    expose:
+      - "5432"
+    ports:
+      - "5432:5432"
+
+  backend:
+    image: "docker-prc-dev.x5.ru/prc_backend:latest"
+    container_name: "backend_service"
+    platform: linux/amd64
+    restart: unless-stopped
+    profiles: [ "app", "backend" ]
+    user: root
+    networks:
+      prc_network:
+        ipv4_address: 200.10.0.11
+    volumes:
+      - ./settings/.envs/:/app/settings/.envs/:ro
+    ports:
+      - "8000:8000"
+    expose:
+      - "8000"
+    command:
+      - server
+
+  frontend:
+    image: "docker-prc-dev.x5.ru/prc_frontend:latest"
+    container_name: "prc_frontend"
+    depends_on:
+      - backend
+    platform: linux/amd64
+    restart: unless-stopped
+    profiles: [ "app", "frontend" ]
+    networks:
+      prc_network:
+        ipv4_address: 200.10.0.12
+    volumes:
+      - ./settings/:/usr/share/nginx/settings:ro
+      - ./settings/certs:/etc/nginx/certs:ro
+    ports:
+      - "80:80"
+      - "8080:80"
+      - "443:443"
+    environment:
+      - NODE_ENV=production
