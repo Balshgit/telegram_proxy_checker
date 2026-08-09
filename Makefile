@@ -2,7 +2,7 @@ GREEN  := $(shell tput -Txterm setaf 2)
 YELLOW := $(shell tput -Txterm setaf 3)
 RESET  := $(shell tput -Txterm sgr0)
 
-.PHONY: help backend frontend up-docker-app down-docker-app build-backend build-frontend push-backend push-frontend push-images
+.PHONY: help backend frontend database up-docker-app down-docker-app build-backend build-frontend push-backend push-frontend push-images
 .DEFAULT_GOAL := help
 
 ## Запустить backend.
@@ -18,6 +18,7 @@ frontend:
 	cd -
 
 ## Запустить базу данных
+up-database:
 	docker compose --profile "db" up -d
 
 ## Запуск приложения в докере.

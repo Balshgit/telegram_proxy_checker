@@ -41,11 +41,11 @@ class DatabaseSettings(BaseSettings):
     POSTGRES_USER: str
     POSTGRES_PASSWORD: str
     POSTGRES_DB: str
-    POSTGRES_DB_SQLALCHEMY_LOGS: bool = False
+    DB_SQLALCHEMY_LOGS: bool = False
 
     @computed_field  # type: ignore[prop-decorator]
     @cached_property
-    def POSTGRES_DB_SQLALCHEMY_DATABASE_URI(self) -> PostgresDsn:
+    def DB_SQLALCHEMY_DATABASE_URI(self) -> PostgresDsn:
         return PostgresDsn(
             f"postgresql+asyncpg://{self.POSTGRES_USER}"
             f":{self.POSTGRES_PASSWORD}"

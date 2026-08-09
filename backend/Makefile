@@ -5,7 +5,7 @@ RESET  := $(shell tput -Txterm sgr0)
 .PHONY: help format lint lint-style lint-typing lint-imports lint-complexity lint-vulnerabilities app
 .DEFAULT_GOAL := help
 
-PYTHON_TARGETS = app tests settings scripts
+PYTHON_TARGETS = app tests settings
 
 APP_FACTORY = app.main:create_app
 

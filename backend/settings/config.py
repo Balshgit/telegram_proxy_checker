@@ -4,7 +4,6 @@ from enum import StrEnum, unique
 from functools import lru_cache
 
 from dotenv import load_dotenv
-from pydantic import SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from settings.infra import (
@@ -35,7 +34,6 @@ class BaseAppSettings(BaseSettings):
 
 class AppSettings(
     TaskiqSettings,
-    SentrySettings,
     LoggingSettings,
     DatabaseSettings,
     BaseAppSettings,
