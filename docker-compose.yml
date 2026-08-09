@@ -38,7 +38,7 @@ services:
       prc_network:
         ipv4_address: 201.10.0.11
     volumes:
-      - ../envs/:/app/settings/envs/:ro
+      - envs/:/app/settings/envs/:ro
     ports:
       - "8000:8000"
     expose:

@@ -1,7 +1,7 @@
-import os
 import typing
 from enum import StrEnum, unique
 from functools import lru_cache
+from pathlib import Path
 
 from dotenv import load_dotenv
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -12,6 +12,10 @@ from settings.infra import (
     TaskiqSettings,
     TestDatabaseSettings,
 )
+
+BASE_DIR = Path(__file__).parent.parent.parent / Path("envs")
+APP_ENV_FILE = BASE_DIR / Path(".env")
+APP_TEST_ENV_FILE = BASE_DIR / Path(".env.tests")
 
 
 @unique
@@ -39,12 +43,12 @@ class AppSettings(
     BaseAppSettings,
     BaseSettings,
 ):
-    model_config = SettingsConfigDict(env_file=os.path.join(os.path.dirname(__file__), ".envs/.env"))
+    model_config = SettingsConfigDict(env_file=APP_ENV_FILE)
 
 
 class AppTestSettings(TestDatabaseSettings, AppSettings):
     TESTS_CALL_COUNT: int = 0
-    model_config = SettingsConfigDict(env_file=os.path.join(os.path.dirname(__file__), ".envs/.env.tests"))
+    model_config = SettingsConfigDict(env_file=APP_TEST_ENV_FILE)
 
 
 environments: dict[str, type[AppSettings]] = {
@@ -62,12 +66,12 @@ def load_app_settings(stage: StageEnum | None = None) -> AppSettings:
     match app_env:
         case StageEnum.production:
             environment_path = None
-        case StageEnum.dev | StageEnum.production:
-            environment_path = "../envs/.env"
+        case StageEnum.dev:
+            environment_path = APP_ENV_FILE
         case StageEnum.local_runtests:
-            environment_path = "../envs/.env.tests"
+            environment_path = APP_TEST_ENV_FILE
         case StageEnum.ci_runtests:
-            environment_path = "../envs/.env.ci.runtests"
+            environment_path = APP_TEST_ENV_FILE
         case _ as unreachable:
             typing.assert_never(unreachable)
     if environment_path:

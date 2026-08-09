@@ -1,5 +1,4 @@
-from taskiq import AsyncBroker, InMemoryBroker
-from taskiq.middlewares.retry_middleware import SimpleRetryMiddleware
+from taskiq import AsyncBroker, InMemoryBroker, SimpleRetryMiddleware
 from taskiq_aio_pika import AioPikaBroker
 
 from app.infra.taskiq.helpers import register_tasks
