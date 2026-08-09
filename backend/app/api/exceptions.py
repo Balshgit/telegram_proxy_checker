@@ -6,7 +6,7 @@ from typing import Annotated, Any, Union
 from fastapi import status
 from fastapi.exceptions import RequestValidationError
 from fastapi.requests import Request
-from fastapi.responses import Response
+from fastapi.responses import JSONResponse, Response
 from loguru import logger
 from pydantic import BaseModel, BeforeValidator, ConfigDict, Field
 from starlette.exceptions import HTTPException as StarletteHTTPException
@@ -368,14 +368,16 @@ async def on_api_exception(_: Request, exception: BaseAPIException) -> Response:
         exclude_unset=True,
         exclude_defaults=True,
     )
-    return Response(
+    return JSONResponse(
         status_code=exception.status_code,
         content=content,
         headers=exception.headers | _get_request_id_header() if exception.headers else _get_request_id_header(),
     )
 
 
-async def generic_http_exception_handler(request: Request, exception: StarletteHTTPException) -> Response:
+async def generic_http_exception_handler(
+    request: Request, exception: StarletteHTTPException
+) -> JSONResponse | Response:
     corresponding_api_exceptions: dict[int, BaseAPIException] = {
         UnknownEndpointError.status_code: UnknownEndpointError(),
         PermissionMissingError.status_code: PermissionMissingError(),
@@ -385,7 +387,7 @@ async def generic_http_exception_handler(request: Request, exception: StarletteH
     if api_exception:
         return await on_api_exception(request, api_exception)
     else:  # noqa: RET505
-        return Response(
+        return JSONResponse(
             status_code=exception.status_code,
             headers=(
                 exception.headers | _get_request_id_header()  # type: ignore[operator]
@@ -400,7 +402,7 @@ async def generic_http_exception_handler(request: Request, exception: StarletteH
         )
 
 
-async def internal_server_error_handler(_request: Request, _exception: Exception) -> Response:
+async def internal_server_error_handler(_request: Request, _exception: Exception) -> JSONResponse | Response:
     error = InternalServerError(title="Что-то пошло не так!", type="InternalServerError")  # type: ignore[call-arg]
     response = InternalServerErrorResponse(status=500, error=error).model_dump(  # type: ignore[call-arg]
         exclude_unset=True
@@ -420,10 +422,10 @@ async def internal_server_error_handler(_request: Request, _exception: Exception
         )
     except Exception:  # noqa: BLE001
         logger.info("unhandled exception", error=_exception.__class__, scope=_request.scope)
-    return Response(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, content=response, headers=request_id)
+    return JSONResponse(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, content=response, headers=request_id)
 
 
-async def validation_exception_handler(_: Request, exc: RequestValidationError) -> Response:
+async def validation_exception_handler(_: Request, exc: RequestValidationError) -> JSONResponse | Response:
     error_descriptions = []
     for error in exc.errors():
         if isinstance(error, dict):
@@ -439,7 +441,7 @@ async def validation_exception_handler(_: Request, exc: RequestValidationError) 
 
     response_data = RequestParamValidationError().get_response_data()
     response_data.error.error_descriptions = error_descriptions  # type: ignore
-    return Response(
+    return JSONResponse(
         status_code=response_data.status,
         content=response_data.model_dump(exclude_none=True, exclude_unset=True, exclude_defaults=True),
         headers=_get_request_id_header(),

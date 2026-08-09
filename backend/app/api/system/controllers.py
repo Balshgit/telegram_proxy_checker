@@ -5,7 +5,7 @@ from dependency_injector.wiring import inject
 from fastapi import APIRouter, Depends, HTTPException, status
 from loguru import logger
 from sqlalchemy import literal, select
-from starlette.responses import Response
+from starlette.responses import JSONResponse
 
 from app.api.router import TPCAPIRoute
 from app.di.dependency_injector import AsyncProvide, Container
@@ -20,8 +20,8 @@ router = APIRouter(route_class=TPCAPIRoute)
     status_code=HTTPStatus.OK,
     summary="Healthcheck",
 )
-async def healthcheck() -> Response:
-    return Response(content=None, status_code=status.HTTP_200_OK)
+async def healthcheck() -> JSONResponse:
+    return JSONResponse(content=None, status_code=status.HTTP_200_OK)
 
 
 @router.get(
@@ -33,7 +33,7 @@ async def healthcheck() -> Response:
 @inject
 async def readiness_check(
     database_engines: Annotated[DatabaseEngines, Depends(AsyncProvide[Container.infra.database_engines])],
-) -> Response:
+) -> JSONResponse:
 
     query = select(literal("1").label("status"))
     try:
@@ -44,4 +44,4 @@ async def readiness_check(
         logger.error(exc)
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE) from exc
 
-    return Response(content=None, status_code=status.HTTP_200_OK)
+    return JSONResponse(content=None, status_code=status.HTTP_200_OK)
