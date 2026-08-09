@@ -2,7 +2,7 @@ GREEN  := $(shell tput -Txterm setaf 2)
 YELLOW := $(shell tput -Txterm setaf 3)
 RESET  := $(shell tput -Txterm sgr0)
 
-.PHONY: help format lint lint-style lint-typing lint-imports lint-complexity lint-vulnerabilities app up-app-dependencies down-app-dependencies
+.PHONY: help format lint lint-style lint-typing lint-imports lint-complexity lint-vulnerabilities app
 .DEFAULT_GOAL := help
 
 PYTHON_TARGETS = app tests settings scripts
@@ -42,28 +42,6 @@ lint: lint-style lint-type-hints lint-imports lint-complexity
 ## Запустить приложение.
 app:
 	uvicorn --factory $(APP_FACTORY) --reload
-
-
-## Запустить локальное окружение для приложения.
-up-app-dependencies:
-	docker compose up -d
-
-
-## Отключить локальное окружение для приложения.
-down-app-dependencies:
-	docker compose --profile "*" down -v
-
-## Запуск приложения в докере.
-up-docker-app:
-	docker compose --profile "app" up -d
-
-## Сборка приложения.
-build-image:
-	docker build --platform linux/amd64 -t docker-prc-dev.x5.ru/prc_backend:latest .
-
-## Сохранения образа в репозиторий.
-push-image:
-	docker login docker-prc-dev.x5.ru && docker push docker-prc-dev.x5.ru/prc_backend:latest
 
 
 help:

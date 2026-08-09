@@ -2,7 +2,7 @@ GREEN  := $(shell tput -Txterm setaf 2)
 YELLOW := $(shell tput -Txterm setaf 3)
 RESET  := $(shell tput -Txterm sgr0)
 
-.PHONY: help format lint lint-style lint-typing lint-imports lint-complexity lint-vulnerabilities app up-app-dependencies down-app-dependencies
+.PHONY: help backend frontend up-docker-app down-docker-app build-backend build-frontend push-backend push-frontend push-images
 .DEFAULT_GOAL := help
 
 ## Запустить backend.
@@ -17,6 +17,8 @@ frontend:
 	make app
 	cd -
 
+## Запустить базу данных
+	docker compose --profile "db" up -d
 
 ## Запуск приложения в докере.
 up-docker-app:
@@ -26,15 +28,31 @@ up-docker-app:
 down-docker-app:
 	docker compose --profile "*" down -v
 
+## Сбилдить бекенд
+build-backend:
+	echo "building backend docker image..."
+	cd backend && docker build --platform linux/amd64 -f docker/Dockerfile -t tpc_backend:latest . && cd -
+
+## Сбилдить фронтенд
+build-frontend:
+	echo "building frontend docker image..."
+	cd frontend && docker build --platform linux/amd64 -f docker/Dockerfile -t tpc_frontend:latest . && cd -
 
 ## Сборка приложения.
-build-images:
-	docker build --platform linux/amd64 -f backend/docker/Dockerfile -t tpc_backend:latest . && \
-	docker build --platform linux/amd64 -f frontend/docker/Dockerfile -t tpc_frontend:latest .
+build-images: build-backend build-frontend
 
-## Сохранения образа в репозиторий.
-push-images:
-	docker login && docker push tpc_backend:latest && docker push tpc_frontend:latest
+## Сохранения образа бекенда в репозиторий.
+push-backend:
+	echo "pushing backend docker image..."
+	docker login && docker push tpc_backend:latest
+
+## Сохранения образа фронтэнда в репозиторий.
+push-frontend:
+	echo "pushing frontend docker image..."
+	docker login && docker push tpc_frontend:latest
+
+## Сохранения образов в репозиторий.
+push-images: push-backend push-frontend
 
 
 help:
