@@ -27,8 +27,10 @@ services:
       - "5432:5432"
 
   backend:
-    image: "docker-prc-dev.x5.ru/prc_backend:latest"
+    image: "tpc_backend:latest"
     container_name: "backend_service"
+    depends_on:
+      - postgres_db
     platform: linux/amd64
     restart: unless-stopped
     profiles: [ "app", "backend" ]
@@ -45,8 +47,8 @@ services:
       - server
 
   frontend:
-    image: "docker-prc-dev.x5.ru/prc_frontend:latest"
-    container_name: "prc_frontend"
+    image: "prc_frontend:latest"
+    container_name: "frontend_service"
     depends_on:
       - backend
     platform: linux/amd64
@@ -56,8 +58,7 @@ services:
       prc_network:
         ipv4_address: 201.10.0.12
     volumes:
-      - ./settings/:/usr/share/nginx/settings:ro
-      - ./settings/certs:/etc/nginx/certs:ro
+      - ../envs/:/app/settings/envs/:ro
     ports:
       - "80:80"
       - "8080:80"

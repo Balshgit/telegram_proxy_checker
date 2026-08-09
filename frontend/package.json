@@ -4,9 +4,9 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "tsc -b && vite build",
-    "preview": "vite preview"
+    "dev": "vite --config settings/vite.config.ts",
+    "build": "tsc -b settings/tsconfig.json && vite build --config settings/vite.config.ts",
+    "preview": "vite preview --config settings/vite.config.ts"
   },
   "dependencies": {
     "react": "^19.1.0",
