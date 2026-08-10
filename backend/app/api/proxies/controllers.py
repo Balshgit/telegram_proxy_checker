@@ -1,8 +1,8 @@
+from datetime import datetime
 from typing import Annotated
 
 from dependency_injector.wiring import inject
 from fastapi import APIRouter, Depends, Query
-from pydantic import FutureDatetime, PastDatetime
 from starlette import status
 
 from app.api.base_deps import get_offset_pagination
@@ -34,10 +34,10 @@ async def get_paginated_proxies(
     proxy_service: Annotated[ProxyService, Depends(AsyncProvide[Container.services.proxy_service])],
     pagination: OffsetPagination = Depends(get_offset_pagination),
     created_from: Annotated[
-        PastDatetime | None, Query(..., description="Фильтровать от той даты, когда урлы прокси были создан")
+        datetime | None, Query(..., description="Фильтровать от той даты, когда урлы прокси были создан")
     ] = None,
     created_to: Annotated[
-        FutureDatetime | None, Query(..., description="Фильтровать до той даты, когда урлы прокси были создан")
+        datetime | None, Query(..., description="Фильтровать до той даты, когда урлы прокси были создан")
     ] = None,
     proxy_status: Annotated[ProxyStatusEnum | None, Query(..., description="Фильтр по статусу")] = None,
 ) -> PaginationResponseWithCounters[TelegramProxySerializer, ProxiesCounters]:

@@ -1,5 +1,6 @@
 from collections.abc import Awaitable, Callable
 from datetime import datetime, timedelta
+from typing import Any
 
 import pytest
 from assertpy import assert_that
@@ -132,17 +133,20 @@ async def test_get_all_proxies_paginated(
 
 
 @pytest.mark.parametrize(
-    "created_from, created_to, proxy_status, proxy_id",
+    "params, proxy_id",
     [
-        pytest.param(None, None, ProxyStatusEnum.enabled, 7, id="filter by enabled"),
+        pytest.param({"proxy_status": ProxyStatusEnum.enabled}, 7, id="filter by enabled"),
         pytest.param(
-            datetime.now(tz=MOSCOW_TZ) - timedelta(days=2),
-            datetime.now(tz=MOSCOW_TZ),
-            None,
+            {
+                "created_from": (datetime.now(tz=MOSCOW_TZ) - timedelta(days=2)).isoformat(),
+                "created_to": (datetime.now(tz=MOSCOW_TZ)).isoformat(),
+            },
             42,
             id="from created_from to created_to",
         ),
-        pytest.param(datetime.now(tz=MOSCOW_TZ) - timedelta(days=5), None, None, 1, id="only created_to"),
+        pytest.param(
+            {"created_to": (datetime.now(tz=MOSCOW_TZ) - timedelta(days=3)).isoformat()}, 1, id="only created_to"
+        ),
     ],
 )
 async def test_get_all_proxies_with_filters(
@@ -151,26 +155,27 @@ async def test_get_all_proxies_with_filters(
     sqlalchemy_model_factory_maker: Callable[
         [type[SQLAlchemyFactory], AsyncSession], Awaitable[type[SQLAlchemyFactory]]
     ],
-    created_from: datetime | None,
-    created_to: datetime | None,
-    proxy_status: ProxyStatusEnum | None,
+    params: dict[str, Any],
     proxy_id: int,
 ) -> None:
     proxy_factory = await sqlalchemy_model_factory_maker(factory_cls=TelegramProxyFactory, session=db_rollback_session)
 
-    await proxy_factory.create_async(id=7, status="enabled")
     await proxy_factory.create_async(
-        id=42, created_at=datetime.now(tz=MOSCOW_TZ).replace(tzinfo=None) - timedelta(days=2), status="disabled"
+        id=7, status="enabled", created_at=datetime.now(tz=MOSCOW_TZ).replace(tzinfo=None), ping=42
     )
     await proxy_factory.create_async(
-        id=1, created_at=datetime.now(tz=MOSCOW_TZ).replace(tzinfo=None) - timedelta(days=3), status="disabled"
+        id=42,
+        created_at=datetime.now(tz=MOSCOW_TZ).replace(tzinfo=None) - timedelta(days=1),
+        status="disabled",
+        ping=42,
     )
-    created_from_iso = created_from.isoformat() if created_from else None
-    created_to_iso = created_to.isoformat() if created_to else None
+    await proxy_factory.create_async(
+        id=1, created_at=datetime.now(tz=MOSCOW_TZ).replace(tzinfo=None) - timedelta(days=5), status="disabled", ping=42
+    )
 
     response = await rest_client.get(
         "/api/proxies",
-        params={"proxy_status": proxy_status, "created_from": created_from_iso, "created_to": created_to_iso},
+        params=params,
     )
     assert response.status_code == status.HTTP_200_OK, response.text
 
@@ -181,3 +186,45 @@ async def test_get_all_proxies_with_filters(
     assert counters["total"] == 3
 
     assert_that(data).extracting("id").is_equal_to([proxy_id])
+
+
+async def test_get_all_proxies_with_best_ping_on_top(
+    rest_client: AsyncClient,
+    db_rollback_session: AsyncSession,
+    sqlalchemy_model_factory_maker: Callable[
+        [type[SQLAlchemyFactory], AsyncSession], Awaitable[type[SQLAlchemyFactory]]
+    ],
+) -> None:
+    proxy_factory = await sqlalchemy_model_factory_maker(factory_cls=TelegramProxyFactory, session=db_rollback_session)
+
+    proxy_1 = await proxy_factory.create_async(ping=543, updated_at=None)
+    proxy_2 = await proxy_factory.create_async(ping=42, updated_at=datetime.now(tz=MOSCOW_TZ).replace(tzinfo=None))
+    await proxy_factory.create_async(ping=None)
+
+    response = await rest_client.get("/api/proxies")
+    assert response.status_code == status.HTTP_200_OK
+
+    data = response.json()["payload"]["data"]
+    counters = response.json()["payload"]["counters"]
+
+    assert len(data) == 2
+    assert counters["total"] == 2
+
+    assert data == [
+        {
+            "id": proxy_2.id,
+            "url": proxy_2.url,
+            "created_at": proxy_2.created_at.isoformat(),
+            "updated_at": proxy_2.updated_at.isoformat(),
+            "status": proxy_2.status,
+            "ping": proxy_2.ping,
+        },
+        {
+            "id": proxy_1.id,
+            "url": proxy_1.url,
+            "created_at": proxy_1.created_at.isoformat(),
+            "updated_at": None,
+            "status": proxy_1.status,
+            "ping": proxy_1.ping,
+        },
+    ]
