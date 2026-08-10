@@ -39,10 +39,10 @@ async def get_paginated_proxies(
     created_to: Annotated[
         FutureDatetime | None, Query(..., description="Фильтровать до той даты, когда урлы прокси были создан")
     ] = None,
-    proxies_status: Annotated[ProxyStatusEnum | None, Query(..., description="Фильтр по статусу")] = None,
+    proxy_status: Annotated[ProxyStatusEnum | None, Query(..., description="Фильтр по статусу")] = None,
 ) -> PaginationResponseWithCounters[TelegramProxySerializer, ProxiesCounters]:
 
-    filters = ProxyFilterDTO(created_from=created_from, created_to=created_to, status=proxies_status)
+    filters = ProxyFilterDTO(created_from=created_from, created_to=created_to, status=proxy_status)
 
     proxies_page, total_count = await proxy_service.get_all_proxies(pagination=pagination, filters=filters)
 

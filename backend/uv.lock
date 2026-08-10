@@ -154,6 +154,12 @@ wheels = [
 ]
 
 [[package]]
+name = "assertpy"
+version = "1.1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/4f/39/720b5d4463612a40a166d00999cbb715fce3edaf08a9a7588ba5985699ec/assertpy-1.1.tar.gz", hash = "sha256:acc64329934ad71a3221de185517a43af33e373bb44dc05b5a9b174394ef4833", size = 25421, upload-time = "2020-07-19T14:39:02.462Z" }
+
+[[package]]
 name = "ast-serialize"
 version = "0.8.0"
 source = { registry = "https://pypi.org/simple" }
@@ -1793,6 +1799,7 @@ dependencies = [
 
 [package.dev-dependencies]
 dev = [
+    { name = "assertpy" },
     { name = "black" },
     { name = "coverage" },
     { name = "flake8" },
@@ -1840,7 +1847,7 @@ requires-dist = [
     { name = "python-dotenv", specifier = ">=1.2" },
     { name = "python-multipart", specifier = ">=0.0.32" },
     { name = "python-telegram-bot", specifier = ">=22.8" },
-    { name = "sqlakeyset", specifier = ">=2.0" },
+    { name = "sqlakeyset", specifier = ">=2" },
     { name = "sqlalchemy", specifier = ">=2.0" },
     { name = "sqlalchemy-utils", specifier = ">=0.42" },
     { name = "taskiq", specifier = "<=0.12" },
@@ -1851,6 +1858,7 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "assertpy", specifier = ">=1.1" },
     { name = "black", specifier = ">=25.1.0" },
     { name = "coverage", specifier = ">=7.8.1" },
     { name = "flake8", specifier = ">=7.2.0" },
