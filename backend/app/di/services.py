@@ -14,4 +14,5 @@ class ServicesContainer(containers.DeclarativeContainer):
     proxy_service: providers.Singleton[ProxyService] = providers.Singleton(
         ProxyService,
         repository=repositories.proxy_repository,
+        github_gateway=gateways.github_gateway,
     )

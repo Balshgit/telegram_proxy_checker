@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, Query
 from starlette import status
 
 from app.api.base_deps import get_offset_pagination
-from app.api.base_schemas import PaginationResponseWithCounters
+from app.api.base_schemas import OkResponse, PaginationResponseWithCounters
 from app.api.proxies.serializers import ProxiesCounters, TelegramProxySerializer
 from app.api.responses import build_responses
 from app.api.router import TPCAPIRoute
@@ -54,3 +54,22 @@ async def get_paginated_proxies(
         counters_model=ProxiesCounters,
         counters={"total": total_count},
     )
+
+
+@router.post(
+    "/proxies",
+    name="proxies:save_proxies",
+    status_code=status.HTTP_200_OK,
+    summary="Сохранение проксей",
+    responses=build_responses(
+        status_code=status.HTTP_200_OK,
+        response_model=OkResponse[list[TelegramProxySerializer]],
+    ),
+)
+@inject
+async def save_proxies(
+    proxy_service: Annotated[ProxyService, Depends(AsyncProvide[Container.services.proxy_service])],
+) -> OkResponse[list[TelegramProxySerializer]]:
+
+    proxies = await proxy_service.save_proxies()
+    return OkResponse.new(status_code=status.HTTP_200_OK, model=OkResponse[list[TelegramProxySerializer]], data=proxies)
