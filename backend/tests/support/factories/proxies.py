@@ -1,5 +1,5 @@
 from datetime import datetime
-from urllib.parse import urlencode, urljoin
+from urllib.parse import urlencode
 
 from httpx import URL
 from polyfactory.factories.sqlalchemy_factory import SQLAlchemyFactory

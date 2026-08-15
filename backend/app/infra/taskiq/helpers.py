@@ -7,6 +7,8 @@ from typing import Any
 from taskiq import AsyncBroker, InMemoryBroker, TaskiqResult
 from taskiq.exceptions import UnknownTaskError
 
+from app.core.proxies.tasks import save_proxies_to_database_task
+
 
 class TaskPeriodEnum(StrEnum):
     every_minute = "*/1 * * * *"
@@ -25,7 +27,11 @@ class TaskConfig:
 
 
 def register_tasks(broker: AsyncBroker) -> None:
-    tasks: list[TaskConfig] = []
+    tasks: list[TaskConfig] = [
+        TaskConfig(
+            func=save_proxies_to_database_task, labels={"timeout": 30, "retry_on_error": False, "max_retries": 0}
+        )
+    ]
 
     for task in tasks:
         broker.register_task(

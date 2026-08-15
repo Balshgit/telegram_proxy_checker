@@ -40,7 +40,7 @@ class ProxyRepository(BaseDBRepository):
         return proxies_page, total_count_result.scalar_one()
 
     async def save_proxies(
-        self, proxies_dto: list[ProxyBaseDTO], session: AsyncSession | None = None
+        self, proxies_dto: tuple[ProxyBaseDTO], session: AsyncSession | None = None
     ) -> list[TelegramProxy]:
 
         proxies = [

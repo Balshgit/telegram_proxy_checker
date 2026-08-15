@@ -3,6 +3,7 @@ from enum import StrEnum
 PROXY_PING_TIMEOUT = 3.0
 TELEGRAM_PROXY_APP_SCHEME = "tg"
 TELEGRAM_PROXY_APP_HOST = "proxy"
+SAVE_POSTGRES_BATCH_SIZE = 100
 
 
 class ProxyStatusEnum(StrEnum):

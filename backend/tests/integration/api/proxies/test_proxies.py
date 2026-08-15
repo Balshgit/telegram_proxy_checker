@@ -4,7 +4,7 @@ from typing import Any
 
 import pytest
 from assertpy import assert_that
-from httpx import AsyncClient, URL
+from httpx import URL, AsyncClient
 from polyfactory.factories.sqlalchemy_factory import SQLAlchemyFactory
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette import status

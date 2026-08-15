@@ -23,7 +23,7 @@ class GithubGateway:
 
         return [URL(url) for url in content.split("\n")]
 
-    async def ping_proxies(self) -> list[ProxyBaseDTO]:
+    async def get_urls_for_ping(self) -> list[URL]:
         proxy_urls = await self.get_proxies_list()
 
         urls_to_ping = []
@@ -34,8 +34,7 @@ class GithubGateway:
                 continue
             urls_to_ping.append(url)
 
-        tasks = [self.get_host_latency(url) for url in urls_to_ping]
-        return await asyncio.gather(*tasks)
+        return urls_to_ping
 
     async def get_host_latency(self, proxy_url: URL) -> ProxyBaseDTO:
         proxy_server = self._get_params_from_proxy(proxy_url.params)
