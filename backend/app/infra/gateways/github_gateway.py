@@ -48,10 +48,10 @@ class GithubGateway:
                     writer.close()
                     await writer.wait_closed()
         except Exception:  # noqa: BLE001
-            return ProxyDTO(url=proxy_url, ping=None, status=ProxyStatusEnum.disabled)
+            return ProxyDTO(url=proxy_url, latency=None, status=ProxyStatusEnum.disabled)
 
         latency = int((time.monotonic() - started_at) * 1000)
-        return ProxyDTO(url=proxy_url, ping=latency, status=ProxyStatusEnum.enabled)
+        return ProxyDTO(url=proxy_url, latency=latency, status=ProxyStatusEnum.enabled)
 
     @staticmethod
     def _get_params_from_proxy(params: QueryParams) -> ProxyServerDTO:

@@ -38,12 +38,12 @@ async def test_get_all_proxies(
 ) -> None:
     proxy_factory = await sqlalchemy_model_factory_maker(factory_cls=TelegramProxyFactory, session=db_rollback_session)
 
-    proxies = await proxy_factory.create_batch_async(size=3, ping=42)
+    proxies = await proxy_factory.create_batch_async(size=3, latency=42)
 
     response = await rest_client.get("/api/proxies")
     assert response.status_code == status.HTTP_200_OK
 
-    proxy_1, proxy_2, proxy_3 = sorted(proxies, key=lambda x: (x.ping, x.id))
+    proxy_1, proxy_2, proxy_3 = sorted(proxies, key=lambda x: (x.latency, x.id))
 
     data = response.json()["payload"]["data"]
     counters = response.json()["payload"]["counters"]
@@ -58,7 +58,7 @@ async def test_get_all_proxies(
             "created_at": proxy_1.created_at.isoformat(),
             "updated_at": None,
             "status": proxy_1.status,
-            "ping": proxy_1.ping,
+            "latency": proxy_1.latency,
         },
         {
             "id": proxy_2.id,
@@ -66,7 +66,7 @@ async def test_get_all_proxies(
             "created_at": proxy_2.created_at.isoformat(),
             "updated_at": None,
             "status": proxy_2.status,
-            "ping": proxy_2.ping,
+            "latency": proxy_2.latency,
         },
         {
             "id": proxy_3.id,
@@ -74,7 +74,7 @@ async def test_get_all_proxies(
             "created_at": proxy_3.created_at.isoformat(),
             "updated_at": None,
             "status": proxy_3.status,
-            "ping": proxy_3.ping,
+            "latency": proxy_3.latency,
         },
     ]
 
@@ -88,12 +88,12 @@ async def test_get_all_proxies_paginated(
 ) -> None:
     proxy_factory = await sqlalchemy_model_factory_maker(factory_cls=TelegramProxyFactory, session=db_rollback_session)
 
-    proxies = await proxy_factory.create_batch_async(size=7, ping=42)
+    proxies = await proxy_factory.create_batch_async(size=7, latency=42)
 
     response = await rest_client.get("/api/proxies", params={"limit": 3})
     assert response.status_code == status.HTTP_200_OK
 
-    proxy_1, proxy_2, proxy_3, proxy_4, proxy_5, proxy_6, proxy_7 = sorted(proxies, key=lambda x: (x.ping, x.id))
+    proxy_1, proxy_2, proxy_3, proxy_4, proxy_5, proxy_6, proxy_7 = sorted(proxies, key=lambda x: (x.latency, x.id))
 
     data = response.json()["payload"]["data"]
     counters = response.json()["payload"]["counters"]
@@ -161,16 +161,19 @@ async def test_get_all_proxies_with_filters(
     proxy_factory = await sqlalchemy_model_factory_maker(factory_cls=TelegramProxyFactory, session=db_rollback_session)
 
     await proxy_factory.create_async(
-        id=7, status="enabled", created_at=datetime.now(tz=MOSCOW_TZ).replace(tzinfo=None), ping=42
+        id=7, status="enabled", created_at=datetime.now(tz=MOSCOW_TZ).replace(tzinfo=None), latency=42
     )
     await proxy_factory.create_async(
         id=42,
         created_at=datetime.now(tz=MOSCOW_TZ).replace(tzinfo=None) - timedelta(days=1),
         status="disabled",
-        ping=42,
+        latency=42,
     )
     await proxy_factory.create_async(
-        id=1, created_at=datetime.now(tz=MOSCOW_TZ).replace(tzinfo=None) - timedelta(days=5), status="disabled", ping=42
+        id=1,
+        created_at=datetime.now(tz=MOSCOW_TZ).replace(tzinfo=None) - timedelta(days=5),
+        status="disabled",
+        latency=42,
     )
 
     response = await rest_client.get(
@@ -188,7 +191,7 @@ async def test_get_all_proxies_with_filters(
     assert_that(data).extracting("id").is_equal_to([proxy_id])
 
 
-async def test_get_all_proxies_with_best_ping_on_top(
+async def test_get_all_proxies_with_best_latency_on_top(
     rest_client: AsyncClient,
     db_rollback_session: AsyncSession,
     sqlalchemy_model_factory_maker: Callable[
@@ -197,9 +200,9 @@ async def test_get_all_proxies_with_best_ping_on_top(
 ) -> None:
     proxy_factory = await sqlalchemy_model_factory_maker(factory_cls=TelegramProxyFactory, session=db_rollback_session)
 
-    proxy_1 = await proxy_factory.create_async(ping=543, updated_at=None)
-    proxy_2 = await proxy_factory.create_async(ping=42, updated_at=datetime.now(tz=MOSCOW_TZ).replace(tzinfo=None))
-    await proxy_factory.create_async(ping=None)
+    proxy_1 = await proxy_factory.create_async(latency=543, updated_at=None)
+    proxy_2 = await proxy_factory.create_async(latency=42, updated_at=datetime.now(tz=MOSCOW_TZ).replace(tzinfo=None))
+    proxy_3 = await proxy_factory.create_async(latency=None)
 
     response = await rest_client.get("/api/proxies")
     assert response.status_code == status.HTTP_200_OK
@@ -207,8 +210,8 @@ async def test_get_all_proxies_with_best_ping_on_top(
     data = response.json()["payload"]["data"]
     counters = response.json()["payload"]["counters"]
 
-    assert len(data) == 2
-    assert counters["total"] == 2
+    assert len(data) == 3
+    assert counters["total"] == 3
 
     assert data == [
         {
@@ -217,7 +220,7 @@ async def test_get_all_proxies_with_best_ping_on_top(
             "created_at": proxy_2.created_at.isoformat(),
             "updated_at": proxy_2.updated_at.isoformat(),
             "status": proxy_2.status,
-            "ping": proxy_2.ping,
+            "latency": proxy_2.latency,
         },
         {
             "id": proxy_1.id,
@@ -225,6 +228,14 @@ async def test_get_all_proxies_with_best_ping_on_top(
             "created_at": proxy_1.created_at.isoformat(),
             "updated_at": None,
             "status": proxy_1.status,
-            "ping": proxy_1.ping,
+            "latency": proxy_1.latency,
+        },
+        {
+            "id": proxy_3.id,
+            "url": proxy_3.url,
+            "created_at": proxy_3.created_at.isoformat(),
+            "updated_at": None,
+            "status": proxy_3.status,
+            "latency": None,
         },
     ]

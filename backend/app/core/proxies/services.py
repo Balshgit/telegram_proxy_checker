@@ -26,7 +26,7 @@ class ProxyService:
         proxies = [
             ProxyDTO(
                 url=URL(scheme=TELEGRAM_PROXY_APP_SCHEME, host=TELEGRAM_PROXY_APP_HOST, params=proxy.url.params),
-                ping=proxy.ping,
+                latency=proxy.latency,
                 status=proxy.status,
             )
             for proxy in pinged_proxies

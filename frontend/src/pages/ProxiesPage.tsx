@@ -62,14 +62,14 @@ function formatDate(value: string | null): string {
   }).format(date)
 }
 
-function pingTone(ping: number | null): string {
-  if (ping === null) {
+function latencyTone(latency: number | null): string {
+  if (latency === null) {
     return 'none'
   }
-  if (ping < 300) {
+  if (latency < 300) {
     return 'good'
   }
-  if (ping < 1000) {
+  if (latency < 1000) {
     return 'medium'
   }
   return 'bad'
@@ -365,8 +365,8 @@ function ProxiesPage() {
                           </span>
                         </td>
                         <td className="col-ping" data-label="Пинг">
-                          <span className={`ping ping--${pingTone(proxy.ping)}`}>
-                            {proxy.ping === null ? '—' : `${proxy.ping} мс`}
+                          <span className={`ping ping--${latencyTone(proxy.latency)}`}>
+                            {proxy.latency === null ? '—' : `${proxy.latency} мс`}
                           </span>
                         </td>
                         <td className="col-date muted" data-label="Создан">

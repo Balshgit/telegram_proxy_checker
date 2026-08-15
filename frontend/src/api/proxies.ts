@@ -13,7 +13,7 @@ export interface TelegramProxy {
   created_at: string
   updated_at: string | null
   status: ProxyStatus
-  ping: number | null
+  latency: number | null
 }
 
 export interface PaginationInfo {
