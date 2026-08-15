@@ -38,7 +38,7 @@ services:
       prc_network:
         ipv4_address: 201.10.0.11
     volumes:
-      - envs/:/envs/:ro
+      - ./envs/:/envs/:ro
     ports:
       - "8000:8000"
     expose:
@@ -47,7 +47,7 @@ services:
       - server
 
   frontend:
-    image: "prc_frontend:latest"
+    image: "tpc_frontend:latest"
     container_name: "frontend_service"
     depends_on:
       - backend
@@ -58,7 +58,7 @@ services:
       prc_network:
         ipv4_address: 201.10.0.12
     volumes:
-      - ../envs/:/envs/:ro
+      - ./envs/:/envs/:ro
     ports:
       - "80:80"
       - "8080:80"

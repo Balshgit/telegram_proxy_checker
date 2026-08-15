@@ -20,9 +20,9 @@ class ProxyRepository(BaseDBRepository):
         session: AsyncSession | None = None,
     ) -> tuple[Page[list[TelegramProxy]], int]:
         query = (
-            select(TelegramProxy).where(TelegramProxy.ping.is_not(None)).order_by(TelegramProxy.ping, TelegramProxy.id)
+            select(TelegramProxy).order_by(TelegramProxy.ping, TelegramProxy.id)
         )
-        count_query = select(func.count(TelegramProxy.id)).where(TelegramProxy.ping.is_not(None))
+        count_query = select(func.count(TelegramProxy.id))
 
         if filters.created_from:
             query = query.where(TelegramProxy.created_at >= filters.created_from)
