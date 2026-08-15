@@ -5,6 +5,7 @@ from sqlakeyset import Page
 
 from app.core.concurrency import run_async
 from app.core.pagination import OffsetPagination
+from app.core.proxies.constants import SAVE_POSTGRES_CHUNK_SIZE
 from app.core.proxies.dto import ProxyBaseDTO, ProxyFilterDTO
 from app.core.proxies.models import TelegramProxy
 from app.core.proxies.repositories import ProxyRepository
@@ -27,12 +28,12 @@ class ProxyService:
     async def save_proxies(self) -> list[TelegramProxy]:
         urls_for_ping = await self.github_gateway.get_urls_for_ping()
 
-        proxies_dtos = await self.get_host_latency_for_urls(urls=urls_for_ping[:100])
+        proxies_dtos = await self.get_host_latency_for_urls(urls=urls_for_ping[:SAVE_POSTGRES_CHUNK_SIZE])
         proxies = await self.repository.save_proxies(proxies_dto=proxies_dtos)
 
         await self.taskiq_tasks_executor.run(
             save_proxies_to_database_task,
-            params={"urls": list(map(str, urls_for_ping[100:]))},
+            params={"urls": list(map(str, urls_for_ping[SAVE_POSTGRES_CHUNK_SIZE:]))},
         )
         return proxies
 
