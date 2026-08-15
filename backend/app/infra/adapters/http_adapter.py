@@ -61,7 +61,7 @@ class BaseHttpAdapter:
     ) -> None:
         await self._client.aclose()
 
-    async def _send_request_and_raise_for_status(
+    async def send_request_and_raise_for_status(
         self,
         url: str,
         *,

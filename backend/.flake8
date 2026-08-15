@@ -1,0 +1,10 @@
+[flake8]
+inline-quotes = "double"
+max-line-length = 120
+max-expression-complexity = 10
+max-annotations-complexity=4
+max-complexity = 15
+ignore = E701,W503,E704
+ban-relative-imports = true
+exclude = .venv
+per-file-ignores =
