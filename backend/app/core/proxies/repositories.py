@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.pagination import OffsetPagination, core_get_page
 from app.core.proxies.constants import ProxyStatusEnum
-from app.core.proxies.dto import ProxyBaseDTO, ProxyFilterDTO
+from app.core.proxies.dto import ProxyBaseDTO, ProxyCountersDTO, ProxyFilterDTO
 from app.core.proxies.exceptions import ProxyNotFoundException
 from app.core.proxies.models import TelegramProxy
 from app.core.repositories import BaseDBRepository
@@ -24,14 +24,21 @@ class ProxyRepository(BaseDBRepository):
         except NoResultFound as exc:
             raise ProxyNotFoundException(proxy_id=proxy_id) from exc
 
+    async def get_all_proxies(self, session: AsyncSession | None = None) -> list[TelegramProxy]:
+        query = select(TelegramProxy)
+
+        async with self.session_wrap(session) as wrapped_session:
+            return await self.get_multiple_results(query=query, session=wrapped_session)
+
     async def get_paginated_proxies(
         self,
         filters: ProxyFilterDTO,
         pagination: OffsetPagination,
         session: AsyncSession | None = None,
-    ) -> tuple[Page[list[TelegramProxy]], int]:
+    ) -> tuple[Page[list[TelegramProxy]], ProxyCountersDTO]:
         query = select(TelegramProxy).order_by(TelegramProxy.latency, TelegramProxy.id)
-        count_query = select(func.count(TelegramProxy.id))
+        total_count_query = select(func.count(TelegramProxy.id))
+        active_count_query = total_count_query.where(TelegramProxy.status == ProxyStatusEnum.enabled)
 
         if filters.created_from:
             query = query.where(TelegramProxy.created_at >= filters.created_from)
@@ -46,16 +53,28 @@ class ProxyRepository(BaseDBRepository):
             proxies_page = await core_get_page(
                 selectable=query, session=wrapped_session, pagination=pagination, as_model=True
             )
-            total_count_result = await wrapped_session.execute(count_query)
+            total_count_result = await wrapped_session.execute(total_count_query)
+            active_count_result = await wrapped_session.execute(active_count_query)
 
-        return proxies_page, total_count_result.scalar_one()
+        return (
+            proxies_page,
+            ProxyCountersDTO(total=total_count_result.scalar_one(), active=active_count_result.scalar_one()),
+        )
 
     async def save_proxies(
-        self, proxies_dto: tuple[ProxyBaseDTO], session: AsyncSession | None = None
+        self, proxies_dto: tuple[ProxyBaseDTO], with_updated_at: bool = False, session: AsyncSession | None = None
     ) -> list[TelegramProxy]:
 
+        updated_at = func.now() if with_updated_at else None
+
         proxies = [
-            TelegramProxy(url=str(proxy.url), created_at=func.now(), status=proxy.status, latency=proxy.latency)
+            TelegramProxy(
+                url=str(proxy.url),
+                created_at=func.now(),
+                status=proxy.status,
+                latency=proxy.latency,
+                updated_at=proxy.updated_at if proxy.updated_at else updated_at,
+            )
             for proxy in proxies_dto
         ]
 

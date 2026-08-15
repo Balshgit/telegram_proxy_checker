@@ -219,23 +219,66 @@
 }
 
 .icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   width: 32px;
   height: 32px;
+  padding: 0;
   border-radius: 9px;
   border: 1px solid var(--glass-border);
   background: var(--glass-bg);
   color: var(--text-secondary);
+  font-family: inherit;
   font-size: 14px;
   cursor: pointer;
+  flex-shrink: 0;
   -webkit-tap-highlight-color: transparent;
   touch-action: manipulation;
   transition: all 0.2s ease;
 }
 
-.icon-btn:hover {
+.icon-btn:not(:disabled):hover {
   color: var(--text-primary);
   border-color: rgba(var(--azure-rgb), 0.45);
   background: rgba(var(--azure-rgb), 0.14);
+}
+
+.icon-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.icon-btn__glyph {
+  display: inline-block;
+  line-height: 1;
+}
+
+.icon-btn--refresh {
+  font-size: 16px;
+}
+
+.icon-btn--refresh:not(:disabled):hover {
+  color: #4ade80;
+  border-color: rgba(74, 222, 128, 0.45);
+  background: rgba(74, 222, 128, 0.14);
+}
+
+.icon-btn--refresh.is-loading {
+  opacity: 1;
+  color: var(--text-primary);
+  border-color: rgba(var(--azure-rgb), 0.45);
+  background: rgba(var(--azure-rgb), 0.14);
+}
+
+.icon-btn--refresh.is-loading .icon-btn__glyph {
+  animation: spin 0.8s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .icon-btn--refresh.is-loading .icon-btn__glyph {
+    animation-duration: 2s;
+  }
 }
 
 /* ── Filters ────────────────────────────────────────────── */
@@ -358,7 +401,7 @@
 }
 
 .col-status {
-  width: 140px;
+  width: 156px;
 }
 
 .col-ping {
@@ -371,7 +414,7 @@
 }
 
 .col-actions {
-  width: 200px;
+  width: 232px;
   text-align: right;
 }
 
@@ -439,6 +482,121 @@
   color: #f87171;
   background: rgba(248, 113, 113, 0.12);
   border-color: rgba(248, 113, 113, 0.3);
+}
+
+/* ── Статус: редактируемый дропдаун ─────────────────────── */
+
+.status-select {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 30px 0 11px;
+  height: 32px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  transition: border-color 0.2s ease, background 0.2s ease, box-shadow 0.2s ease;
+}
+
+.status-select__dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+  flex-shrink: 0;
+}
+
+.status-select__label {
+  pointer-events: none;
+}
+
+/*
+ * Нативный select растянут на всю «пилюлю» и полностью прозрачен:
+ * так вся плашка становится тап-таргетом (важно для мобильных),
+ * а видимый текст и стрелку рисуем сами.
+ */
+.status-select__field {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  appearance: none;
+  -webkit-appearance: none;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font-family: inherit;
+  font-size: 16px; /* 16px, чтобы iOS не зумил страницу при открытии списка */
+  padding: 0;
+  margin: 0;
+  cursor: pointer;
+  outline: none;
+}
+
+.status-select__field:disabled {
+  cursor: not-allowed;
+}
+
+/* Выпадающий список рисуется системой — задаём читаемые цвета для тёмной темы */
+.status-select__field option {
+  background: var(--bg-dark-3, #10141f);
+  color: #fff;
+  font-weight: 500;
+}
+
+.status-select__caret {
+  position: absolute;
+  right: 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  opacity: 0.75;
+  pointer-events: none;
+}
+
+.status-select__caret .btn__spinner {
+  width: 11px;
+  height: 11px;
+  border-width: 2px;
+  border-color: currentColor;
+  border-top-color: transparent;
+}
+
+.status-select:focus-within {
+  box-shadow: 0 0 0 2px rgba(var(--azure-rgb), 0.45);
+}
+
+.status-select--enabled {
+  color: #4ade80;
+  background: rgba(74, 222, 128, 0.12);
+  border-color: rgba(74, 222, 128, 0.3);
+}
+
+.status-select--enabled:hover {
+  background: rgba(74, 222, 128, 0.2);
+}
+
+.status-select--disabled {
+  color: #f87171;
+  background: rgba(248, 113, 113, 0.12);
+  border-color: rgba(248, 113, 113, 0.3);
+}
+
+.status-select--disabled:hover {
+  background: rgba(248, 113, 113, 0.2);
+}
+
+.status-select.is-busy {
+  opacity: 0.75;
+}
+
+.status-select:has(.status-select__field:disabled) {
+  opacity: 0.55;
 }
 
 .ping {
@@ -896,8 +1054,9 @@
   }
 
   .row-actions .btn--green {
-    flex: 1;
-    padding: 12px 14px;
+    flex: 1 1 auto;
+    min-width: 0;
+    padding: 12px 10px;
     font-size: 14px;
   }
 
@@ -905,6 +1064,22 @@
     width: 44px;
     height: 44px;
     flex-shrink: 0;
+    font-size: 16px;
+  }
+
+  .icon-btn--refresh {
+    font-size: 20px;
+  }
+
+  /* Статус: увеличенный тап-таргет в карточке */
+  .status-select {
+    height: 38px;
+    padding: 0 32px 0 13px;
+    font-size: 13px;
+  }
+
+  .status-select__field {
+    /* select уже растянут на всю плашку — на мобильных этого достаточно */
     font-size: 16px;
   }
 
@@ -995,6 +1170,15 @@
 
   .stat-card__label {
     font-size: 9px;
+  }
+
+  .row-actions .btn--green {
+    padding: 12px 8px;
+    font-size: 13px;
+  }
+
+  .status-select {
+    padding: 0 30px 0 11px;
   }
 }
 

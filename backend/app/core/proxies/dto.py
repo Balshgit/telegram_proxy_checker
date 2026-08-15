@@ -22,16 +22,22 @@ class ProxyBaseDTO:
     url: URL
     latency: int | None = None
     status: ProxyStatusEnum
+    updated_at: datetime | None = None
 
 
 @dataclass(slots=True, kw_only=True)
 class ProxyDTO(ProxyBaseDTO):
     id: int
     created_at: datetime | None
-    updated_at: datetime | None
 
 
 @dataclass(slots=True, kw_only=True)
 class ProxyServerDTO:
     host: str | None = None
     port: int | None = None
+
+
+@dataclass(slots=True, kw_only=True)
+class ProxyCountersDTO:
+    total: int = 0
+    active: int = 0

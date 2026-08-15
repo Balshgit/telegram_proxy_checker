@@ -47,7 +47,7 @@ async def get_paginated_proxies(
 
     filters = ProxyFilterDTO(created_from=created_from, created_to=created_to, status=proxy_status)
 
-    proxies_page, total_count = await proxy_service.get_all_proxies(pagination=pagination, filters=filters)
+    proxies_page, counters = await proxy_service.get_all_proxies(pagination=pagination, filters=filters)
 
     return PaginationResponseWithCounters.new(
         status_code=status.HTTP_200_OK,
@@ -55,7 +55,7 @@ async def get_paginated_proxies(
         data=proxies_page,
         pagination=proxies_page.paging,  # type: ignore[arg-type]
         counters_model=ProxiesCounters,
-        counters={"total": total_count},
+        counters=counters,
     )
 
 
@@ -74,7 +74,7 @@ async def save_proxies(
     proxy_service: Annotated[ProxyService, Depends(AsyncProvide[Container.services.proxy_service])],
 ) -> OkResponse[list[TelegramProxySerializer]]:
 
-    proxies = await proxy_service.save_proxies()
+    proxies = await proxy_service.add_new_proxies()
     return OkResponse.new(status_code=status.HTTP_200_OK, model=list[TelegramProxySerializer], data=proxies)
 
 
@@ -119,3 +119,20 @@ async def update_a_proxy(
         raise ResourceNotFoundByIDError(resource_type=ResourceType.proxy, resource_id=proxy_id) from exc
 
     return OkResponse.new(status_code=status.HTTP_200_OK, model=TelegramProxySerializer, data=proxy)
+
+
+@router.post(
+    "/proxies/status",
+    name="proxies:update_all_proxies",
+    status_code=status.HTTP_200_OK,
+    summary="Обновление статуса и латенси у всех проксей",
+    responses=build_responses(
+        status_code=status.HTTP_200_OK,
+        response_model=None,
+    ),
+)
+@inject
+async def update_all_proxies(
+    proxy_service: Annotated[ProxyService, Depends(AsyncProvide[Container.services.proxy_service])],
+) -> None:
+    await proxy_service.update_all_proxies()

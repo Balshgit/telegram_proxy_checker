@@ -3,10 +3,9 @@ from dataclasses import dataclass
 from httpx import URL
 from sqlakeyset import Page
 
-from app.core.concurrency import run_async
 from app.core.pagination import OffsetPagination
 from app.core.proxies.constants import SAVE_POSTGRES_CHUNK_SIZE, ProxyStatusEnum
-from app.core.proxies.dto import ProxyBaseDTO, ProxyFilterDTO
+from app.core.proxies.dto import ProxyCountersDTO, ProxyFilterDTO
 from app.core.proxies.models import TelegramProxy
 from app.core.proxies.repositories import ProxyRepository
 from app.core.proxies.tasks import save_proxies_to_database_task
@@ -22,18 +21,21 @@ class ProxyService:
 
     async def get_all_proxies(
         self, filters: ProxyFilterDTO, pagination: OffsetPagination
-    ) -> tuple[Page[list[TelegramProxy]], int]:
+    ) -> tuple[Page[list[TelegramProxy]], ProxyCountersDTO]:
         return await self.repository.get_paginated_proxies(filters=filters, pagination=pagination)
 
-    async def save_proxies(self) -> list[TelegramProxy]:
+    async def add_new_proxies(self) -> list[TelegramProxy]:
         urls_for_ping = await self.github_gateway.get_urls_for_ping()
+        return await self.save_proxies(urls_for_ping, with_updated_at=False)
 
-        proxies_dtos = await self.get_host_latency_for_urls(urls=urls_for_ping[:SAVE_POSTGRES_CHUNK_SIZE])
-        proxies = await self.repository.save_proxies(proxies_dto=proxies_dtos)
+    async def save_proxies(self, proxy_urls: list[URL], with_updated_at: bool) -> list[TelegramProxy]:
+        proxies_dtos = await self.github_gateway.get_host_latency_for_urls(urls=proxy_urls[:SAVE_POSTGRES_CHUNK_SIZE])
+
+        proxies = await self.repository.save_proxies(proxies_dto=proxies_dtos, with_updated_at=with_updated_at)
 
         await self.taskiq_tasks_executor.run(
             save_proxies_to_database_task,
-            params={"urls": list(map(str, urls_for_ping[SAVE_POSTGRES_CHUNK_SIZE:]))},
+            params={"urls": list(map(str, proxy_urls[SAVE_POSTGRES_CHUNK_SIZE:]))},
         )
         return proxies
 
@@ -55,9 +57,11 @@ class ProxyService:
             await self.repository.update_proxy(proxy, latency=latency, status=status, session=session)
             return proxy
 
-    async def get_host_latency_for_urls(self, urls: list[URL]) -> tuple[ProxyBaseDTO]:
-        tasks = [self.github_gateway.get_host_latency(url) for url in urls]
-        return await run_async(*tasks)
-
     async def delete_all_proxies(self) -> None:
         await self.repository.delete_all_proxies()
+
+    async def update_all_proxies(self) -> None:
+        proxies = await self.repository.get_all_proxies()
+
+        proxy_urls = [URL(proxy.url) for proxy in proxies]
+        await self.save_proxies(proxy_urls=proxy_urls, with_updated_at=True)

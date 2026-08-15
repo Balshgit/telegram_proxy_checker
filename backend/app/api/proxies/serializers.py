@@ -10,6 +10,9 @@ from app.core.proxies.constants import ProxyStatusEnum
 
 class ProxiesCounters(BaseModel):
     total: Annotated[int, Field(..., ge=0, description="Всего проксей")]
+    active: Annotated[int, Field(..., ge=0, description="Всего активных проксей")]
+
+    model_config = ConfigDict(from_attributes=True)
 
 
 class TelegramProxySerializer(BaseModel):

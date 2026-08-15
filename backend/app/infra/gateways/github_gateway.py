@@ -6,6 +6,7 @@ from http import HTTPMethod
 
 from httpx import URL, QueryParams
 
+from app.core.concurrency import run_async
 from app.core.proxies.constants import PROXY_PING_TIMEOUT, ProxyStatusEnum
 from app.core.proxies.dto import ProxyBaseDTO, ProxyServerDTO
 from app.infra.adapters.http_adapter import BaseHttpAdapter
@@ -53,6 +54,10 @@ class GithubGateway:
 
         latency = int((time.monotonic() - started_at) * 1000)
         return ProxyBaseDTO(url=proxy_url, latency=latency, status=ProxyStatusEnum.enabled)
+
+    async def get_host_latency_for_urls(self, urls: list[URL]) -> tuple[ProxyBaseDTO]:
+        tasks = [self.get_host_latency(url) for url in urls]
+        return await run_async(*tasks)
 
     @staticmethod
     def _get_params_from_proxy(params: QueryParams) -> ProxyServerDTO:
