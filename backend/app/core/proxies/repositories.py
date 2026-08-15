@@ -19,9 +19,7 @@ class ProxyRepository(BaseDBRepository):
         pagination: OffsetPagination,
         session: AsyncSession | None = None,
     ) -> tuple[Page[list[TelegramProxy]], int]:
-        query = (
-            select(TelegramProxy).order_by(TelegramProxy.ping, TelegramProxy.id)
-        )
+        query = select(TelegramProxy).order_by(TelegramProxy.ping, TelegramProxy.id)
         count_query = select(func.count(TelegramProxy.id))
 
         if filters.created_from:

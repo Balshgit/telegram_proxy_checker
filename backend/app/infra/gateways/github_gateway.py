@@ -34,23 +34,24 @@ class GithubGateway:
                 continue
             urls_to_ping.append(url)
 
-        tasks = [self._ping_host(url) for url in urls_to_ping]
+        tasks = [self.get_ping_host_latency(url) for url in urls_to_ping]
         return await asyncio.gather(*tasks)
 
-    async def _ping_host(self, proxy_url: URL) -> ProxyDTO:
+    async def get_ping_host_latency(self, proxy_url: URL) -> ProxyDTO:
         proxy_server = self._get_params_from_proxy(proxy_url.params)
         started_at = time.monotonic()
+
         try:
             async with asyncio.timeout(PROXY_PING_TIMEOUT):
                 _, writer = await asyncio.open_connection(host=proxy_server.host, port=proxy_server.port)
-                writer.close()
-                with suppress(OSError, TimeoutError):
+                with suppress(Exception):
+                    writer.close()
                     await writer.wait_closed()
-        except TimeoutError, OSError:
+        except Exception:  # noqa: BLE001
             return ProxyDTO(url=proxy_url, ping=None, status=ProxyStatusEnum.disabled)
 
-        ping = int((time.monotonic() - started_at) * 1000)
-        return ProxyDTO(url=proxy_url, ping=ping, status=ProxyStatusEnum.enabled)
+        latency = int((time.monotonic() - started_at) * 1000)
+        return ProxyDTO(url=proxy_url, ping=latency, status=ProxyStatusEnum.enabled)
 
     @staticmethod
     def _get_params_from_proxy(params: QueryParams) -> ProxyServerDTO:

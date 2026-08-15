@@ -10,11 +10,11 @@ networks:
         - subnet: 201.10.0.0/24
 
 services:
-  postgres_db:
+  db:
     image: "postgres:18.4"
     container_name: "postgres_db"
     restart: unless-stopped
-    profiles: [ "app", "db" ]
+    profiles: [ "app", "db", "backend" ]
     networks:
       prc_network:
         ipv4_address: 201.10.0.10
@@ -30,10 +30,10 @@ services:
     image: "tpc_backend:latest"
     container_name: "backend_service"
     depends_on:
-      - postgres_db
+      - db
     platform: linux/amd64
     restart: unless-stopped
-    profiles: [ "app", "backend" ]
+    profiles: [ "app", "backend", "frontend"]
     networks:
       prc_network:
         ipv4_address: 201.10.0.11
