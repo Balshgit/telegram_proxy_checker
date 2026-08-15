@@ -63,7 +63,7 @@ function formatDate(value: string | null): string {
 }
 
 function latencyTone(latency: number | null): string {
-  if (latency === null) {
+  if (latency == null) {
     return 'none'
   }
   if (latency < 300) {
@@ -86,7 +86,7 @@ function ProxiesPage() {
 
   const [limit, setLimit] = useState(PAGE_SIZE_OPTIONS[0])
   const [offset, setOffset] = useState(0)
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('enabled')
 
   const [isLoading, setIsLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
@@ -366,7 +366,7 @@ function ProxiesPage() {
                         </td>
                         <td className="col-ping" data-label="Пинг">
                           <span className={`ping ping--${latencyTone(proxy.latency)}`}>
-                            {proxy.latency === null ? '—' : `${proxy.latency} мс`}
+                            {proxy.latency == null ? '—' : `${proxy.latency} мс`}
                           </span>
                         </td>
                         <td className="col-date muted" data-label="Создан">
