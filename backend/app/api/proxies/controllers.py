@@ -72,4 +72,19 @@ async def save_proxies(
 ) -> OkResponse[list[TelegramProxySerializer]]:
 
     proxies = await proxy_service.save_proxies()
-    return OkResponse.new(status_code=status.HTTP_200_OK, model=OkResponse[list[TelegramProxySerializer]], data=proxies)
+    return OkResponse.new(status_code=status.HTTP_200_OK, model=list[TelegramProxySerializer], data=proxies)
+
+
+@router.delete(
+    "/proxies",
+    name="proxies:delete_all_proxies",
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="Удаление всех проксей из базы",
+    responses=build_responses(status_code=status.HTTP_202_ACCEPTED, response_model=None),
+)
+@inject
+async def delete_all_proxies(
+    proxy_service: Annotated[ProxyService, Depends(AsyncProvide[Container.services.proxy_service])],
+) -> None:
+
+    await proxy_service.delete_all_proxies()

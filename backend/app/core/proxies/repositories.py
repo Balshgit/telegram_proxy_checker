@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 
 from sqlakeyset import Page
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.pagination import OffsetPagination, core_get_page
@@ -41,12 +41,22 @@ class ProxyRepository(BaseDBRepository):
 
         return proxies_page, total_count_result.scalar_one()
 
-    async def save_proxies(self, proxies_dto: list[ProxyDTO], session: AsyncSession | None = None) -> None:
+    async def save_proxies(
+        self, proxies_dto: list[ProxyDTO], session: AsyncSession | None = None
+    ) -> list[TelegramProxy]:
 
         proxies = [
-            TelegramProxy(url=proxy.url, created_at=func.now(), status=proxy.status, ping=proxy.ping)
+            TelegramProxy(url=str(proxy.url), created_at=func.now(), status=proxy.status, ping=proxy.ping)
             for proxy in proxies_dto
         ]
 
         async with self.session_wrap(session) as wrapped_session:
-            await wrapped_session.add_all(proxies)
+            wrapped_session.add_all(proxies)
+            await wrapped_session.flush()
+        return proxies
+
+    async def delete_all_proxies(self, session: AsyncSession | None = None) -> None:
+        query = delete(TelegramProxy)
+
+        async with self.session_wrap(session) as wrapped_session:
+            await wrapped_session.execute(query)

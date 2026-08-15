@@ -1,10 +1,11 @@
 from dataclasses import dataclass
 
-from httpx import QueryParams
+from httpx import URL
 from sqlakeyset import Page
 
 from app.core.pagination import OffsetPagination
-from app.core.proxies.dto import ProxyDTO, ProxyFilterDTO, ProxyServerDTO
+from app.core.proxies.constants import TELEGRAM_PROXY_APP_HOST, TELEGRAM_PROXY_APP_SCHEME
+from app.core.proxies.dto import ProxyDTO, ProxyFilterDTO
 from app.core.proxies.models import TelegramProxy
 from app.core.proxies.repositories import ProxyRepository
 from app.infra.gateways.github_gateway import GithubGateway
@@ -20,11 +21,18 @@ class ProxyService:
     ) -> tuple[Page[list[TelegramProxy]], int]:
         return await self.repository.get_paginated_proxies(filters=filters, pagination=pagination)
 
-    async def save_proxies(self) -> list[ProxyDTO]:
-        proxies = await self.github_gateway.get_proxies_list()
+    async def save_proxies(self) -> list[TelegramProxy]:
+        pinged_proxies = await self.github_gateway.ping_proxies()
+        proxies = [
+            ProxyDTO(
+                url=URL(scheme=TELEGRAM_PROXY_APP_SCHEME, host=TELEGRAM_PROXY_APP_HOST, params=proxy.url.params),
+                ping=proxy.ping,
+                status=proxy.status,
+            )
+            for proxy in pinged_proxies
+        ]
 
-        proxies_dtos = [ProxyDTO(url=str(proxy)) for proxy in proxies]
+        return await self.repository.save_proxies(proxies)
 
-    @staticmethod
-    def _get_params_from_proxy(params: QueryParams) -> ProxyServerDTO:
-        return ProxyServerDTO(host=params.get("host"), port=params.get("port"))
+    async def delete_all_proxies(self) -> None:
+        await self.repository.delete_all_proxies()
