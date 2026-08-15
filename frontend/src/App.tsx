@@ -1,8 +1,8 @@
 import './App.css'
-import WelcomePage from './pages/WelcomePage'
+import ProxiesPage from './pages/ProxiesPage'
 
 function App() {
-  return <WelcomePage />
+  return <ProxiesPage />
 }
 
 export default App

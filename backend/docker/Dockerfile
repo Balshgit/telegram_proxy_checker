@@ -20,7 +20,7 @@ WORKDIR /app
 # will fail.
 # Copy the application from the builder
 COPY --from=builder --chown=tpc:tpc /app /app
-COPY ./ ./
+COPY ./ .
 # Place executables in the environment at the front of the path
 ENV PATH="/app/.venv/bin:$PATH"
 RUN chmod +x /app/docker/docker-entrypoint.sh

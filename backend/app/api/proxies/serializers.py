@@ -18,6 +18,6 @@ class TelegramProxySerializer(BaseModel):
     created_at: Annotated[datetime, Field(..., description="Дата создания урла прокси")]
     updated_at: Annotated[datetime | None, Field(..., description="Дата обновления урла прокси")]
     status: Annotated[ProxyStatusEnum, Field(..., description="Статус прокси")]
-    ping: Annotated[int | None, Field(..., description="Пинг до прокси в мс")]
+    latency: Annotated[int | None, Field(..., description="Пинг до прокси в мс")]
 
     model_config = ConfigDict(from_attributes=True)
