@@ -5,7 +5,7 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.pagination import OffsetPagination, core_get_page
-from app.core.proxies.dto import ProxyDTO, ProxyFilterDTO
+from app.core.proxies.dto import ProxyBaseDTO, ProxyFilterDTO
 from app.core.proxies.models import TelegramProxy
 from app.core.repositories import BaseDBRepository
 
@@ -40,7 +40,7 @@ class ProxyRepository(BaseDBRepository):
         return proxies_page, total_count_result.scalar_one()
 
     async def save_proxies(
-        self, proxies_dto: list[ProxyDTO], session: AsyncSession | None = None
+        self, proxies_dto: list[ProxyBaseDTO], session: AsyncSession | None = None
     ) -> list[TelegramProxy]:
 
         proxies = [

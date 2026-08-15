@@ -18,10 +18,17 @@ class ProxyFilterDTO:
 
 
 @dataclass(slots=True, kw_only=True)
-class ProxyDTO:
+class ProxyBaseDTO:
     url: URL
     latency: int | None = None
     status: ProxyStatusEnum
+
+
+@dataclass(slots=True, kw_only=True)
+class ProxyDTO(ProxyBaseDTO):
+    id: int
+    created_at: datetime | None
+    updated_at: datetime | None
 
 
 @dataclass(slots=True, kw_only=True)

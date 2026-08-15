@@ -12,7 +12,7 @@ networks:
 services:
   db:
     image: "postgres:18.4"
-    container_name: "postgres_db"
+    container_name: "tpc_db"
     restart: unless-stopped
     profiles: [ "app", "db", "backend" ]
     networks:
@@ -33,7 +33,7 @@ services:
 
   backend:
     image: "tpc_backend:latest"
-    container_name: "backend_service"
+    container_name: "tpc_backend_service"
     depends_on:
       db:
         condition: service_healthy
@@ -46,9 +46,7 @@ services:
     volumes:
       - ./envs/:/envs/:ro
     environment:
-      DB_HOST: "db"
-    ports:
-      - "8000:8000"
+      DB_HOST: "tpc_db"
     expose:
       - "8000"
     command:
@@ -56,7 +54,7 @@ services:
 
   frontend:
     image: "tpc_frontend:latest"
-    container_name: "frontend_service"
+    container_name: "tpc_frontend_service"
     depends_on:
       - backend
     platform: linux/amd64
@@ -68,8 +66,6 @@ services:
     volumes:
       - ./envs/:/envs/:ro
     ports:
-      - "80:80"
-      - "8080:80"
-      - "443:443"
+      - "8083:80"
     environment:
       - NODE_ENV=production

@@ -7,7 +7,7 @@ from http import HTTPMethod
 from httpx import URL, QueryParams
 
 from app.core.proxies.constants import PROXY_PING_TIMEOUT, ProxyStatusEnum
-from app.core.proxies.dto import ProxyDTO, ProxyServerDTO
+from app.core.proxies.dto import ProxyBaseDTO, ProxyServerDTO
 from app.infra.adapters.http_adapter import BaseHttpAdapter
 
 
@@ -23,7 +23,7 @@ class GithubGateway:
 
         return [URL(url) for url in content.split("\n")]
 
-    async def ping_proxies(self) -> list[ProxyDTO]:
+    async def ping_proxies(self) -> list[ProxyBaseDTO]:
         proxy_urls = await self.get_proxies_list()
 
         urls_to_ping = []
@@ -34,10 +34,10 @@ class GithubGateway:
                 continue
             urls_to_ping.append(url)
 
-        tasks = [self.get_ping_host_latency(url) for url in urls_to_ping]
+        tasks = [self.get_host_latency(url) for url in urls_to_ping]
         return await asyncio.gather(*tasks)
 
-    async def get_ping_host_latency(self, proxy_url: URL) -> ProxyDTO:
+    async def get_host_latency(self, proxy_url: URL) -> ProxyBaseDTO:
         proxy_server = self._get_params_from_proxy(proxy_url.params)
         started_at = time.monotonic()
 
@@ -48,10 +48,10 @@ class GithubGateway:
                     writer.close()
                     await writer.wait_closed()
         except Exception:  # noqa: BLE001
-            return ProxyDTO(url=proxy_url, latency=None, status=ProxyStatusEnum.disabled)
+            return ProxyBaseDTO(url=proxy_url, latency=None, status=ProxyStatusEnum.disabled)
 
         latency = int((time.monotonic() - started_at) * 1000)
-        return ProxyDTO(url=proxy_url, latency=latency, status=ProxyStatusEnum.enabled)
+        return ProxyBaseDTO(url=proxy_url, latency=latency, status=ProxyStatusEnum.enabled)
 
     @staticmethod
     def _get_params_from_proxy(params: QueryParams) -> ProxyServerDTO:
