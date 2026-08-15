@@ -2,16 +2,27 @@ from dataclasses import dataclass
 
 from sqlakeyset import Page
 from sqlalchemy import delete, func, select
+from sqlalchemy.exc import NoResultFound
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.pagination import OffsetPagination, core_get_page
+from app.core.proxies.constants import ProxyStatusEnum
 from app.core.proxies.dto import ProxyBaseDTO, ProxyFilterDTO
+from app.core.proxies.exceptions import ProxyNotFoundException
 from app.core.proxies.models import TelegramProxy
 from app.core.repositories import BaseDBRepository
 
 
 @dataclass
 class ProxyRepository(BaseDBRepository):
+
+    async def get_proxy_by_id(self, proxy_id: int, session: AsyncSession | None = None) -> TelegramProxy:
+        query = select(TelegramProxy).where(TelegramProxy.id == proxy_id)
+
+        try:
+            return await self.get_single_result(query=query, session=session, as_scalar=True)
+        except NoResultFound as exc:
+            raise ProxyNotFoundException(proxy_id=proxy_id) from exc
 
     async def get_paginated_proxies(
         self,
@@ -58,3 +69,24 @@ class ProxyRepository(BaseDBRepository):
 
         async with self.session_wrap(session) as wrapped_session:
             await wrapped_session.execute(query)
+
+    async def update_proxy(
+        self,
+        proxy: TelegramProxy,
+        latency: int | None = None,
+        status: ProxyStatusEnum | None = None,
+        session: AsyncSession | None = None,
+    ) -> TelegramProxy:
+        if not latency and not status:
+            return proxy
+
+        if latency:
+            proxy.latency = latency
+        if status:
+            proxy.status = status
+        proxy.updated_at = func.now()
+
+        async with self.session_wrap(session) as wrapped_session:
+            await wrapped_session.flush()
+            await wrapped_session.refresh(proxy)
+            return proxy

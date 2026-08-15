@@ -15,13 +15,12 @@ if typing.TYPE_CHECKING:
 @log_taskiq_decorator
 async def save_proxies_to_database_task(context: typing.Annotated[Context, TaskiqDepends()], urls: list[str]) -> None:
     if not urls:
-        return None
+        return
 
     proxy_service: ProxyService = context.state.container.services.proxy_service()
     proxy_repository: ProxyRepository = context.state.container.repositories.proxy_repository()
 
-    for urls_chunk in batched(urls, SAVE_POSTGRES_CHUNK_SIZE):
+    for urls_chunk in batched(urls, SAVE_POSTGRES_CHUNK_SIZE):  # noqa: B911
         urls_for_ping = [URL(url) for url in urls_chunk]
         proxies = await proxy_service.get_host_latency_for_urls(urls=urls_for_ping)
         await proxy_repository.save_proxies(proxies_dto=proxies)
-    return None

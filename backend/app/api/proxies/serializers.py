@@ -27,3 +27,9 @@ class TelegramProxySerializer(BaseModel):
         return str(value)
 
     model_config = ConfigDict(from_attributes=True, validate_by_alias=False)
+
+
+class UpdateProxyRequestSerializer(BaseModel):
+
+    status: Annotated[ProxyStatusEnum | None, Field(default=None, description="Статус прокси")]
+    is_latency_update: Annotated[bool, Field(default=False, description="Нужно ли обновить латенси")]

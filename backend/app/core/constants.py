@@ -1,4 +1,4 @@
-from enum import Enum
+from enum import StrEnum
 from zoneinfo import ZoneInfo
 
 import httpx
@@ -13,5 +13,6 @@ MAX_SIGNED_INT = 2147483647
 AUTH_TIMEOUT = httpx.Timeout(read=2.5, connect=2.5, write=2.5, pool=2.5)
 
 
-class ResourceType(str, Enum):  # noqa: UP042
+class ResourceType(StrEnum):
     url = "url"
+    proxy = "proxy"

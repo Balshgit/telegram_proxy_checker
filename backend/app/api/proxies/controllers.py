@@ -2,17 +2,20 @@ from datetime import datetime
 from typing import Annotated
 
 from dependency_injector.wiring import inject
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Body, Depends, Path, Query
 from starlette import status
 
 from app.api.base_deps import get_offset_pagination
 from app.api.base_schemas import OkResponse, PaginationResponseWithCounters
-from app.api.proxies.serializers import ProxiesCounters, TelegramProxySerializer
+from app.api.exceptions import ResourceNotFoundByIDError
+from app.api.proxies.serializers import ProxiesCounters, TelegramProxySerializer, UpdateProxyRequestSerializer
 from app.api.responses import build_responses
 from app.api.router import TPCAPIRoute
+from app.core.constants import ResourceType
 from app.core.pagination import OffsetPagination
 from app.core.proxies.constants import ProxyStatusEnum
 from app.core.proxies.dto import ProxyFilterDTO
+from app.core.proxies.exceptions import ProxyNotFoundException
 from app.core.proxies.services import ProxyService
 from app.di.dependency_injector import AsyncProvide, Container
 
@@ -88,3 +91,31 @@ async def delete_all_proxies(
 ) -> None:
 
     await proxy_service.delete_all_proxies()
+
+
+@router.patch(
+    "/proxies/{proxy_id}",
+    name="proxies:update_a_proxy",
+    status_code=status.HTTP_200_OK,
+    summary="Обновление прокси",
+    responses=build_responses(
+        status_code=status.HTTP_200_OK,
+        response_model=OkResponse[TelegramProxySerializer],
+        exceptions=(ResourceNotFoundByIDError,),
+    ),
+)
+@inject
+async def update_a_proxy(
+    proxy_id: Annotated[int, Path(..., description="Id прокси")],
+    body: Annotated[UpdateProxyRequestSerializer, Body(..., description="Тело запроса")],
+    proxy_service: Annotated[ProxyService, Depends(AsyncProvide[Container.services.proxy_service])],
+) -> OkResponse[TelegramProxySerializer]:
+
+    try:
+        proxy = await proxy_service.update_proxy(
+            proxy_id=proxy_id, is_latency_update=body.is_latency_update, status=body.status
+        )
+    except ProxyNotFoundException as exc:
+        raise ResourceNotFoundByIDError(resource_type=ResourceType.proxy, resource_id=proxy_id) from exc
+
+    return OkResponse.new(status_code=status.HTTP_200_OK, model=TelegramProxySerializer, data=proxy)

@@ -5,7 +5,7 @@ from sqlakeyset import Page
 
 from app.core.concurrency import run_async
 from app.core.pagination import OffsetPagination
-from app.core.proxies.constants import SAVE_POSTGRES_CHUNK_SIZE
+from app.core.proxies.constants import SAVE_POSTGRES_CHUNK_SIZE, ProxyStatusEnum
 from app.core.proxies.dto import ProxyBaseDTO, ProxyFilterDTO
 from app.core.proxies.models import TelegramProxy
 from app.core.proxies.repositories import ProxyRepository
@@ -36,6 +36,24 @@ class ProxyService:
             params={"urls": list(map(str, urls_for_ping[SAVE_POSTGRES_CHUNK_SIZE:]))},
         )
         return proxies
+
+    async def update_proxy(
+        self, proxy_id: int, is_latency_update: bool = False, status: ProxyStatusEnum | None = None
+    ) -> TelegramProxy:
+
+        async with self.repository.get_transactional_session() as session:
+            proxy = await self.repository.get_proxy_by_id(proxy_id=proxy_id, session=session)
+            if not is_latency_update and not status:
+                return proxy
+
+            latency = proxy.latency
+            if is_latency_update:
+                proxy_base_dto = await self.github_gateway.get_host_latency(proxy.url)
+                status = ProxyStatusEnum.enabled if proxy_base_dto.latency is not None else ProxyStatusEnum.disabled
+                latency = proxy_base_dto.latency
+
+            await self.repository.update_proxy(proxy, latency=latency, status=status, session=session)
+            return proxy
 
     async def get_host_latency_for_urls(self, urls: list[URL]) -> tuple[ProxyBaseDTO]:
         tasks = [self.github_gateway.get_host_latency(url) for url in urls]

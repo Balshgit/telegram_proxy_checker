@@ -36,7 +36,9 @@ class GithubGateway:
 
         return urls_to_ping
 
-    async def get_host_latency(self, proxy_url: URL) -> ProxyBaseDTO:
+    async def get_host_latency(self, proxy_url: URL | str) -> ProxyBaseDTO:
+        if isinstance(proxy_url, str):
+            proxy_url = URL(proxy_url)
         proxy_server = self._get_params_from_proxy(proxy_url.params)
         started_at = time.monotonic()
 
