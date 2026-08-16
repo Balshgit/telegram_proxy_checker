@@ -754,14 +754,86 @@
 .pager {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+/* Стрелки «в начало» / «в конец» — компактные, только глиф */
+.pager__edge {
+  padding: 9px 12px;
+  font-size: 15px;
+  line-height: 1;
+}
+
+.pager__step {
+  gap: 6px;
+}
+
+.pager__label {
+  font-size: 13px;
+  color: var(--text-muted, var(--text-secondary));
+  margin-left: 2px;
+}
+
+.pager__pages {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  flex-wrap: wrap;
+  justify-content: center;
 }
 
 .pager__page {
-  font-size: 13px;
+  min-width: 34px;
+  height: 34px;
+  padding: 0 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+  border: 1px solid transparent;
+  background: transparent;
   color: var(--text-secondary);
-  min-width: 66px;
+  font-size: 13px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+.pager__page:not(:disabled):hover {
+  background: rgba(var(--azure-rgb), 0.12);
+  border-color: rgba(var(--azure-rgb), 0.35);
+  color: var(--text-primary);
+}
+
+.pager__page:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.pager__page.is-active {
+  background: linear-gradient(135deg, var(--azure), var(--azure-dark));
+  border-color: transparent;
+  color: #fff;
+  font-weight: 600;
+  box-shadow: 0 4px 14px rgba(var(--azure-rgb), 0.35);
+}
+
+.pager__page.is-active:disabled {
+  opacity: 1;
+}
+
+.pager__gap {
+  min-width: 20px;
   text-align: center;
+  color: var(--text-secondary);
+  opacity: 0.6;
+  user-select: none;
 }
 
 /* ── Modal ──────────────────────────────────────────────── */
@@ -1268,12 +1340,40 @@
   }
 
   .pager {
-    justify-content: space-between;
+    justify-content: center;
+    gap: 6px;
   }
 
-  .pager .btn {
+  /* На узком экране кнопки-стрелки живут одной строкой, номера страниц — под ними */
+  .pager__step {
     flex: 1;
-    padding: 12px;
+    padding: 11px;
+    justify-content: center;
+  }
+
+  .pager__edge {
+    padding: 11px 13px;
+  }
+
+  .pager__label {
+    display: none;
+  }
+
+  .pager__pages {
+    order: 1;
+    flex-basis: 100%;
+    gap: 3px;
+  }
+
+  /* Чуть уже, чтобы весь ряд номеров помещался в одну строку на 360px */
+  .pager__page {
+    min-width: 32px;
+    height: 34px;
+    padding: 0 4px;
+  }
+
+  .pager__gap {
+    min-width: 14px;
   }
 
   /* Модалка и тосты */

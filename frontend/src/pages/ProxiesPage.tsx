@@ -15,6 +15,41 @@ import './ProxiesPage.css'
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50, 100]
 
+/** Сколько соседних страниц показываем слева и справа от текущей. */
+const PAGE_WINDOW = 2
+/** До этого количества страниц список выводим целиком, без многоточий. */
+const PAGES_WITHOUT_GAPS = 7
+
+/** Элемент пагинации: либо номер страницы, либо «…» (ключи разные, чтобы React не ругался). */
+type PageItem = number | 'gap-start' | 'gap-end'
+
+/**
+ * Собирает список страниц вида «1 … 4 5 6 … 20»:
+ * первая и последняя всегда на месте, вокруг текущей — окно из соседей.
+ */
+function buildPageItems(currentPage: number, totalPages: number): PageItem[] {
+  if (totalPages <= PAGES_WITHOUT_GAPS) {
+    return Array.from({ length: totalPages }, (_, index) => index + 1)
+  }
+
+  const items: PageItem[] = [1]
+  const from = Math.max(2, currentPage - PAGE_WINDOW)
+  const to = Math.min(totalPages - 1, currentPage + PAGE_WINDOW)
+
+  if (from > 2) {
+    items.push('gap-start')
+  }
+  for (let page = from; page <= to; page += 1) {
+    items.push(page)
+  }
+  if (to < totalPages - 1) {
+    items.push('gap-end')
+  }
+  items.push(totalPages)
+
+  return items
+}
+
 type StatusFilter = ProxyStatus | 'all'
 type PendingAction = 'create' | 'delete' | 'refresh-all' | null
 /** Что именно сейчас происходит с конкретной строкой таблицы. */
@@ -311,9 +346,38 @@ function ProxiesPage() {
   )
 
   const isBusy = pendingAction !== null
+
+  /**
+   * Бекенд отдаёт счётчики по всей базе (total) и по активным (active),
+   * без учёта фильтра — поэтому размер текущей выборки считаем сами.
+   */
+  const filteredTotal =
+    statusFilter === 'enabled' ? activeCount : statusFilter === 'disabled' ? Math.max(0, total - activeCount) : total
+
   const currentPage = Math.floor(offset / limit) + 1
+  /**
+   * Если счётчики разъехались с реальными данными (например, список изменился
+   * в другой вкладке), доверяем next_page и не отрезаем существующую страницу.
+   */
+  const totalPages = Math.max(
+    1,
+    Math.ceil(filteredTotal / limit),
+    hasNextPage ? currentPage + 1 : currentPage,
+  )
+  const pageItems = buildPageItems(currentPage, totalPages)
+
   const rangeFrom = proxies.length ? offset + 1 : 0
   const rangeTo = offset + proxies.length
+
+  const goToPage = useCallback(
+    (page: number) => {
+      setOffset((current) => {
+        const nextOffset = (page - 1) * limit
+        return nextOffset === current ? current : Math.max(0, nextOffset)
+      })
+    },
+    [limit],
+  )
 
   return (
     <div className="proxies-page">
@@ -616,27 +680,78 @@ function ProxiesPage() {
           {!loadError && !isLoading && proxies.length > 0 && (
             <footer className="proxies-footer">
               <span className="muted">
-                Показано {rangeFrom}–{rangeTo} из {total}
+                Показано {rangeFrom}–{rangeTo} из {filteredTotal}
               </span>
-              <div className="pager">
+              <nav className="pager" aria-label="Навигация по страницам">
                 <button
                   type="button"
-                  className="btn btn--ghost"
+                  className="btn btn--ghost pager__edge"
+                  onClick={() => goToPage(1)}
+                  disabled={currentPage === 1 || isBusy}
+                  title="Первая страница"
+                  aria-label="Первая страница"
+                >
+                  «
+                </button>
+                <button
+                  type="button"
+                  className="btn btn--ghost pager__step"
                   onClick={() => setOffset((current) => Math.max(0, current - limit))}
-                  disabled={offset === 0 || isBusy}
+                  disabled={currentPage === 1 || isBusy}
+                  title="Предыдущая страница"
+                  aria-label="Предыдущая страница"
                 >
-                  ← Назад
+                  <span aria-hidden="true">←</span>
+                  <span className="pager__step-text">Назад</span>
                 </button>
-                <span className="pager__page">Стр. {currentPage}</span>
+
+                <span className="pager__label">Стр.</span>
+                <ul className="pager__pages">
+                  {pageItems.map((item) =>
+                    typeof item === 'number' ? (
+                      <li key={item}>
+                        <button
+                          type="button"
+                          className={`pager__page${item === currentPage ? ' is-active' : ''}`}
+                          onClick={() => goToPage(item)}
+                          disabled={isBusy}
+                          aria-current={item === currentPage ? 'page' : undefined}
+                          aria-label={`Страница ${item}`}
+                          title={`Страница ${item}`}
+                        >
+                          {item}
+                        </button>
+                      </li>
+                    ) : (
+                      <li key={item} className="pager__gap" aria-hidden="true">
+                        …
+                      </li>
+                    ),
+                  )}
+                </ul>
+
                 <button
                   type="button"
-                  className="btn btn--ghost"
+                  className="btn btn--ghost pager__step"
                   onClick={() => setOffset((current) => current + limit)}
-                  disabled={!hasNextPage || isBusy}
+                  disabled={(!hasNextPage && currentPage >= totalPages) || isBusy}
+                  title="Следующая страница"
+                  aria-label="Следующая страница"
                 >
-                  Вперёд →
+                  <span className="pager__step-text">Вперёд</span>
+                  <span aria-hidden="true">→</span>
                 </button>
-              </div>
+                <button
+                  type="button"
+                  className="btn btn--ghost pager__edge"
+                  onClick={() => goToPage(totalPages)}
+                  disabled={currentPage === totalPages || isBusy}
+                  title="Последняя страница"
+                  aria-label="Последняя страница"
+                >
+                  »
+                </button>
+              </nav>
             </footer>
           )}
         </section>
