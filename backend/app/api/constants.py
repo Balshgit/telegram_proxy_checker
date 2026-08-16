@@ -21,3 +21,4 @@ class APIVersionEnum(str, Enum):  # noqa: UP042
 
 PDF_MEDIA_TYPE = "application/pdf"
 XLSX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+PLAIN_TEXT_MEDIA_TYPE = "text/plain"

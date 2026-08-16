@@ -14,7 +14,7 @@ COPY ./ ./
 
 RUN npm run build
 
-FROM nginx:1.29.8-alpine
+FROM nginx:1.31.3-alpine
 
 # Выбор nginx конфигурации в зависимости от STAGE
 COPY ./docker/nginx.conf /etc/nginx/conf.d/default.conf

@@ -63,9 +63,11 @@
   gap: 12px;
 }
 
+/* Карточка — кнопка: по клику копирует список прокси в буфер обмена. */
 .stat-card {
+  position: relative;
   min-width: 118px;
-  padding: 14px 18px;
+  padding: 14px 36px 14px 18px;
   border-radius: 14px;
   background: var(--glass-bg);
   border: 1px solid var(--glass-border);
@@ -73,11 +75,49 @@
   display: flex;
   flex-direction: column;
   gap: 4px;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    transform 0.15s ease,
+    border-color 0.15s ease,
+    background 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+.stat-card:hover:not(:disabled) {
+  transform: translateY(-2px);
+  border-color: rgba(var(--azure-rgb), 0.5);
+  background: rgba(var(--azure-rgb), 0.12);
+  box-shadow: 0 12px 26px rgba(0, 0, 0, 0.3);
+}
+
+.stat-card:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.stat-card:focus-visible {
+  outline: 2px solid rgba(var(--azure-rgb), 0.75);
+  outline-offset: 2px;
+}
+
+.stat-card:disabled {
+  cursor: default;
+}
+
+/* Пока копируется одна карточка, вторая просто приглушена. */
+.stat-card:disabled:not(.is-busy) {
+  opacity: 0.65;
 }
 
 .stat-card--accent {
   border-color: rgba(var(--azure-rgb), 0.35);
   background: rgba(var(--azure-rgb), 0.1);
+}
+
+.stat-card--accent:hover:not(:disabled) {
+  background: rgba(var(--azure-rgb), 0.18);
 }
 
 .stat-card__value {
@@ -92,6 +132,41 @@
   text-transform: uppercase;
   letter-spacing: 0.06em;
   color: var(--text-muted);
+}
+
+/* Значок копирования: проявляется по наведению, чтобы не шуметь в покое. */
+.stat-card__copy {
+  position: absolute;
+  top: 10px;
+  right: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  font-size: 13px;
+  line-height: 1;
+  color: var(--text-muted);
+  opacity: 0;
+  transition:
+    opacity 0.15s ease,
+    color 0.15s ease;
+}
+
+.stat-card:hover .stat-card__copy,
+.stat-card:focus-visible .stat-card__copy,
+.stat-card.is-busy .stat-card__copy {
+  opacity: 1;
+}
+
+.stat-card:hover .stat-card__copy {
+  color: var(--text-primary);
+}
+
+.stat-card__copy .btn__spinner {
+  width: 12px;
+  height: 12px;
+  border-width: 2px;
 }
 
 /* ── Toolbar ────────────────────────────────────────────── */
@@ -1064,7 +1139,12 @@
   .stat-card {
     flex: 1;
     min-width: 0;
-    padding: 12px 14px;
+    padding: 12px 30px 12px 14px;
+  }
+
+  .stat-card__copy {
+    top: 8px;
+    right: 9px;
   }
 
   .stat-card__value {
@@ -1468,5 +1548,14 @@
 @media (hover: none) {
   .btn:not(:disabled):hover {
     transform: none;
+  }
+
+  .stat-card:hover:not(:disabled) {
+    transform: none;
+  }
+
+  /* На тач-устройствах ховера нет — подсказку «можно скопировать» показываем всегда. */
+  .stat-card__copy {
+    opacity: 1;
   }
 }

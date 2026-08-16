@@ -6,6 +6,7 @@ import {
   createProxies,
   deleteAllProxies,
   fetchProxies,
+  fetchRawProxies,
   updateAllProxies,
   updateProxy,
 } from '../api/proxies'
@@ -54,6 +55,49 @@ type StatusFilter = ProxyStatus | 'all'
 type PendingAction = 'create' | 'delete' | 'refresh-all' | null
 /** Что именно сейчас происходит с конкретной строкой таблицы. */
 type RowAction = 'refresh' | 'status'
+
+/**
+ * Какую выборку копируем карточкой-счётчиком:
+ * `all` — все прокси, `active` — только со статусом `enabled`.
+ */
+type CopyScope = 'all' | 'active'
+
+const COPY_SCOPE_STATUS: Record<CopyScope, ProxyStatus | null> = {
+  all: null,
+  active: 'enabled',
+}
+
+const COPY_SCOPE_EMPTY_TEXT: Record<CopyScope, string> = {
+  all: 'Список прокси пуст',
+  active: 'Активных прокси нет',
+}
+
+/**
+ * Копирование с запасным вариантом: `navigator.clipboard` доступен только в
+ * secure context (https или localhost), а фронт могут открыть и по http.
+ */
+async function copyToClipboard(text: string): Promise<void> {
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text)
+    return
+  }
+
+  const textarea = document.createElement('textarea')
+  textarea.value = text
+  textarea.setAttribute('readonly', '')
+  textarea.style.position = 'fixed'
+  textarea.style.opacity = '0'
+  document.body.appendChild(textarea)
+
+  try {
+    textarea.select()
+    if (!document.execCommand('copy')) {
+      throw new Error('execCommand("copy") вернул false')
+    }
+  } finally {
+    document.body.removeChild(textarea)
+  }
+}
 
 interface Toast {
   id: number
@@ -146,6 +190,8 @@ function ProxiesPage() {
   const [pendingAction, setPendingAction] = useState<PendingAction>(null)
   const [isConfirmOpen, setIsConfirmOpen] = useState(false)
   const [copiedId, setCopiedId] = useState<number | null>(null)
+  const [copyingScope, setCopyingScope] = useState<CopyScope | null>(null)
+  const [copiedScope, setCopiedScope] = useState<CopyScope | null>(null)
   const [rowPending, setRowPending] = useState<Record<number, RowAction>>({})
   const [toasts, setToasts] = useState<Toast[]>([])
 
@@ -265,7 +311,7 @@ function ProxiesPage() {
   const handleCopy = useCallback(
     async (proxy: TelegramProxy) => {
       try {
-        await navigator.clipboard.writeText(proxy.url)
+        await copyToClipboard(proxy.url)
         setCopiedId(proxy.id)
         window.setTimeout(() => setCopiedId((current) => (current === proxy.id ? null : current)), 1500)
       } catch {
@@ -273,6 +319,43 @@ function ProxiesPage() {
       }
     },
     [pushToast],
+  )
+
+  /**
+   * Клик по карточке-счётчику: тянет GET /api/proxies/raw (для «Активных» —
+   * с фильтром `status=enabled`) и кладёт урлы в буфер обмена, каждый с новой строки.
+   */
+  const handleCopyRaw = useCallback(
+    async (scope: CopyScope) => {
+      if (copyingScope !== null) {
+        return
+      }
+
+      setCopyingScope(scope)
+      try {
+        const urls = await fetchRawProxies({ status: COPY_SCOPE_STATUS[scope] })
+
+        if (urls.length === 0) {
+          pushToast('info', COPY_SCOPE_EMPTY_TEXT[scope], 'Копировать нечего.')
+          return
+        }
+
+        await copyToClipboard(urls.join('\n'))
+
+        setCopiedScope(scope)
+        window.setTimeout(() => setCopiedScope((current) => (current === scope ? null : current)), 1500)
+
+        pushToast('success', `Скопировано в буфер обмена, прокси: ${urls.length}`)
+      } catch (error) {
+        pushToast(
+          'error',
+          error instanceof ApiRequestError ? error.message : 'Не удалось скопировать список прокси',
+        )
+      } finally {
+        setCopyingScope(null)
+      }
+    },
+    [copyingScope, pushToast],
   )
 
   /**
@@ -396,14 +479,42 @@ function ProxiesPage() {
           </div>
 
           <div className="proxies-stats">
-            <div className="stat-card">
+            <button
+              type="button"
+              className={`stat-card${copyingScope === 'all' ? ' is-busy' : ''}`}
+              onClick={() => void handleCopyRaw('all')}
+              disabled={copyingScope !== null}
+              title="Скопировать все прокси в буфер обмена"
+              aria-label="Скопировать все прокси в буфер обмена"
+            >
               <span className="stat-card__value">{total}</span>
               <span className="stat-card__label">Всего</span>
-            </div>
-            <div className="stat-card stat-card--accent">
+              <span className="stat-card__copy" aria-hidden="true">
+                {copyingScope === 'all' ? (
+                  <span className="btn__spinner" />
+                ) : (
+                  <span className="stat-card__copy-glyph">{copiedScope === 'all' ? '✓' : '⧉'}</span>
+                )}
+              </span>
+            </button>
+            <button
+              type="button"
+              className={`stat-card stat-card--accent${copyingScope === 'active' ? ' is-busy' : ''}`}
+              onClick={() => void handleCopyRaw('active')}
+              disabled={copyingScope !== null}
+              title="Скопировать активные прокси в буфер обмена"
+              aria-label="Скопировать активные прокси в буфер обмена"
+            >
               <span className="stat-card__value">{activeCount}</span>
               <span className="stat-card__label">Активных</span>
-            </div>
+              <span className="stat-card__copy" aria-hidden="true">
+                {copyingScope === 'active' ? (
+                  <span className="btn__spinner" />
+                ) : (
+                  <span className="stat-card__copy-glyph">{copiedScope === 'active' ? '✓' : '⧉'}</span>
+                )}
+              </span>
+            </button>
           </div>
         </header>
 

@@ -147,6 +147,46 @@ async function request<TPayload>(path: string, init?: RequestInit): Promise<TPay
   return (body as Envelope<TPayload>).payload ?? null
 }
 
+/**
+ * Вариант `request` для эндпоинтов, отдающих text/plain вместо конверта.
+ * Ошибки бекенд всё равно возвращает конвертом, поэтому тело неуспешного
+ * ответа пробуем разобрать как JSON.
+ */
+async function requestText(path: string, init?: RequestInit): Promise<string> {
+  let response: Response
+
+  try {
+    response = await fetch(`${API_BASE}${path}`, {
+      ...init,
+      headers: { Accept: 'text/plain', ...(init?.headers as Record<string, string> | undefined) },
+    })
+  } catch {
+    throw new ApiRequestError('Не удалось связаться с сервером. Проверьте, что бекенд запущен.', 0)
+  }
+
+  const rawBody = await response.text()
+
+  if (!response.ok) {
+    let body: unknown = null
+
+    if (rawBody) {
+      try {
+        body = JSON.parse(rawBody)
+      } catch {
+        body = null
+      }
+    }
+
+    throw new ApiRequestError(
+      extractErrorMessage(body, response.status),
+      response.status,
+      extractErrorCode(body),
+    )
+  }
+
+  return rawBody
+}
+
 export interface FetchProxiesParams {
   limit: number
   offset: number
@@ -172,6 +212,34 @@ export async function fetchProxies({
     pagination: payload?.pagination ?? { next_page: null, previous_page: null },
     counters: payload?.counters ?? { total: 0, active: 0 },
   }
+}
+
+export interface FetchRawProxiesParams {
+  /** Фильтр по статусу. `null`/не передан — выгружаются все прокси. */
+  status?: ProxyStatus | null
+  signal?: AbortSignal
+}
+
+/**
+ * GET /api/proxies/raw — урлы проксей одним текстовым буфером, каждый с новой строки.
+ *
+ * Ответ приходит как `text/plain`, а не в общем конверте. Фильтр передаётся
+ * query-параметром `status` (внимание: тут именно `status`, а не `proxy_status`,
+ * как в GET /api/proxies).
+ */
+export async function fetchRawProxies({ status, signal }: FetchRawProxiesParams = {}): Promise<string[]> {
+  const query = new URLSearchParams()
+  if (status) {
+    query.set('status', status)
+  }
+
+  const search = query.toString()
+  const raw = await requestText(`/proxies/raw${search ? `?${search}` : ''}`, { signal })
+
+  return raw
+    .split('\n')
+    .map((url) => url.trim())
+    .filter(Boolean)
 }
 
 /**

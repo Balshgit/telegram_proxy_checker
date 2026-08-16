@@ -26,7 +26,7 @@ async def test_get_all_proxies_empty_list(
     counters = response.json()["payload"]["counters"]
 
     assert data == []
-    assert counters == {"total": 0}
+    assert counters == {"total": 0, "active": 0}
 
 
 async def test_get_all_proxies(
@@ -54,6 +54,7 @@ async def test_get_all_proxies(
     assert data == [
         {
             "id": proxy_1.id,
+            "name": proxy_1.name,
             "url": URL("tg://proxy", params=URL(proxy_1.url).params),
             "created_at": proxy_1.created_at.isoformat(),
             "updated_at": None,
@@ -62,6 +63,7 @@ async def test_get_all_proxies(
         },
         {
             "id": proxy_2.id,
+            "name": proxy_2.name,
             "url": URL("tg://proxy", params=URL(proxy_2.url).params),
             "created_at": proxy_2.created_at.isoformat(),
             "updated_at": None,
@@ -70,6 +72,7 @@ async def test_get_all_proxies(
         },
         {
             "id": proxy_3.id,
+            "name": proxy_3.name,
             "url": URL("tg://proxy", params=URL(proxy_3.url).params),
             "created_at": proxy_3.created_at.isoformat(),
             "updated_at": None,
@@ -204,6 +207,8 @@ async def test_get_all_proxies_with_best_latency_on_top(
     proxy_2 = await proxy_factory.create_async(latency=42, updated_at=datetime.now(tz=MOSCOW_TZ).replace(tzinfo=None))
     proxy_3 = await proxy_factory.create_async(latency=None)
 
+    active_proxy_count = len([proxy for proxy in [proxy_1, proxy_2, proxy_3] if proxy.status == "enabled"])
+
     response = await rest_client.get("/api/proxies")
     assert response.status_code == status.HTTP_200_OK
 
@@ -211,11 +216,12 @@ async def test_get_all_proxies_with_best_latency_on_top(
     counters = response.json()["payload"]["counters"]
 
     assert len(data) == 3
-    assert counters["total"] == 3
+    assert counters == {"total": 3, "active": active_proxy_count}
 
     assert data == [
         {
             "id": proxy_2.id,
+            "name": proxy_2.name,
             "url": URL("tg://proxy", params=URL(proxy_2.url).params),
             "created_at": proxy_2.created_at.isoformat(),
             "updated_at": proxy_2.updated_at.isoformat(),
@@ -224,6 +230,7 @@ async def test_get_all_proxies_with_best_latency_on_top(
         },
         {
             "id": proxy_1.id,
+            "name": proxy_1.name,
             "url": URL("tg://proxy", params=URL(proxy_1.url).params),
             "created_at": proxy_1.created_at.isoformat(),
             "updated_at": None,
@@ -232,6 +239,7 @@ async def test_get_all_proxies_with_best_latency_on_top(
         },
         {
             "id": proxy_3.id,
+            "name": proxy_3.name,
             "url": URL("tg://proxy", params=URL(proxy_3.url).params),
             "created_at": proxy_3.created_at.isoformat(),
             "updated_at": None,
@@ -239,3 +247,64 @@ async def test_get_all_proxies_with_best_latency_on_top(
             "latency": None,
         },
     ]
+
+
+async def test_get_raw_proxies_on_empty_database(
+    rest_client: AsyncClient,
+    db_rollback_session: AsyncSession,
+) -> None:
+
+    response = await rest_client.get("/api/proxies/raw")
+
+    assert response.status_code == status.HTTP_200_OK
+    assert response.headers["content-type"].startswith("text/plain")
+    assert response.text == ""
+
+
+async def test_get_raw_proxies_all(
+    rest_client: AsyncClient,
+    db_rollback_session: AsyncSession,
+    sqlalchemy_model_factory_maker: Callable[
+        [type[SQLAlchemyFactory], AsyncSession], Awaitable[type[SQLAlchemyFactory]]
+    ],
+) -> None:
+    proxy_factory = await sqlalchemy_model_factory_maker(factory_cls=TelegramProxyFactory, session=db_rollback_session)
+
+    proxy_1 = await proxy_factory.create_async(latency=42, status=ProxyStatusEnum.enabled)
+    proxy_2 = await proxy_factory.create_async(latency=543, status=ProxyStatusEnum.disabled)
+    proxy_3 = await proxy_factory.create_async(latency=None, status=ProxyStatusEnum.enabled)
+
+    response = await rest_client.get("/api/proxies/raw")
+
+    assert response.status_code == status.HTTP_200_OK, response.text
+    assert response.headers["content-type"].startswith("text/plain")
+
+    assert response.text == f"{proxy_1.url}\n{proxy_2.url}\n{proxy_3.url}"
+
+
+async def test_get_raw_proxies_active_only(
+    rest_client: AsyncClient,
+    db_rollback_session: AsyncSession,
+    sqlalchemy_model_factory_maker: Callable[
+        [type[SQLAlchemyFactory], AsyncSession], Awaitable[type[SQLAlchemyFactory]]
+    ],
+) -> None:
+    proxy_factory = await sqlalchemy_model_factory_maker(factory_cls=TelegramProxyFactory, session=db_rollback_session)
+
+    active_proxy = await proxy_factory.create_async(latency=42, status=ProxyStatusEnum.enabled)
+    await proxy_factory.create_async(latency=543, status=ProxyStatusEnum.disabled)
+
+    response = await rest_client.get("/api/proxies/raw", params={"status": "enabled"})
+
+    assert response.status_code == status.HTTP_200_OK, response.text
+    assert response.text == f"{active_proxy.url}"
+
+
+async def test_get_raw_proxies_with_unknown_filter(
+    rest_client: AsyncClient,
+    db_rollback_session: AsyncSession,
+) -> None:
+
+    response = await rest_client.get("/api/proxies/raw", params={"status": "unknown"})
+
+    assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT, response.text

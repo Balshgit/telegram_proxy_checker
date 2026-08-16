@@ -116,3 +116,5 @@ gitleaks.toml
 .flake8
 .import_linter_cache
 .ruff_cache
+
+tests/
