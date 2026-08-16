@@ -10,7 +10,6 @@ from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 from polyfactory.factories.sqlalchemy_factory import SQLAlchemyFactory
 from sqlalchemy.ext.asyncio import AsyncSession
-from taskiq import AsyncBroker
 
 from app.di.dependency_injector import Container
 from app.infra.adapters.database import Database
@@ -34,13 +33,6 @@ async def _clear_tables_in_metadata(db_connection: Database, test_settings: AppT
             for table in tables:
                 await connection.execute(table.delete())
             await connection.commit()
-
-
-@pytest.fixture(scope="session", autouse=True)
-async def _bind_container_to_taskiq_state(container: Container) -> None:
-    task_executor = container.infra.taskiq_tasks_executor()
-    broker: AsyncBroker = task_executor.broker
-    broker.state.data["container"] = container
 
 
 @pytest.fixture
