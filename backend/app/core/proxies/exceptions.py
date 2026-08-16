@@ -10,3 +10,7 @@ class ProxyConnectException(TPCCoreException):
 
 class ProxyNotFoundException(TPCCoreException):
     msg_template = "Proxy with id {proxy_id} not found"
+
+
+class NoProxiesAddedException(TPCCoreException):
+    msg_template = "No proxies to add"

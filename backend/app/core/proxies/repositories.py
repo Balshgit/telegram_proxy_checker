@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 
 from sqlakeyset import Page
-from sqlalchemy import delete, func, select
+from sqlalchemy import Integer, String, column, delete, func, select, update, values
 from sqlalchemy.exc import NoResultFound
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -28,7 +28,7 @@ class ProxyRepository(BaseDBRepository):
         query = select(TelegramProxy)
 
         async with self.session_wrap(session) as wrapped_session:
-            return await self.get_multiple_results(query=query, session=wrapped_session)
+            return await self.get_multiple_results(query=query, session=wrapped_session, as_scalars=True)
 
     async def get_paginated_proxies(
         self,
@@ -62,10 +62,8 @@ class ProxyRepository(BaseDBRepository):
         )
 
     async def save_proxies(
-        self, proxies_dto: tuple[ProxyBaseDTO], with_updated_at: bool = False, session: AsyncSession | None = None
+        self, proxies_dto: list[ProxyBaseDTO], session: AsyncSession | None = None
     ) -> list[TelegramProxy]:
-
-        updated_at = func.now() if with_updated_at else None
 
         proxies = [
             TelegramProxy(
@@ -73,7 +71,6 @@ class ProxyRepository(BaseDBRepository):
                 created_at=func.now(),
                 status=proxy.status,
                 latency=proxy.latency,
-                updated_at=proxy.updated_at if proxy.updated_at else updated_at,
             )
             for proxy in proxies_dto
         ]
@@ -109,3 +106,26 @@ class ProxyRepository(BaseDBRepository):
             await wrapped_session.flush()
             await wrapped_session.refresh(proxy)
             return proxy
+
+    async def update_proxies(
+        self, proxies_dto: list[ProxyBaseDTO], session: AsyncSession | None = None
+    ) -> list[TelegramProxy]:
+
+        new_values = values(
+            column("url", String),
+            column("latency", Integer),
+            column("status", String),
+            name="new_proxies_values",
+        ).data([(str(proxy.url), proxy.latency, proxy.status.value) for proxy in proxies_dto])
+
+        query = (
+            update(TelegramProxy)
+            .where(TelegramProxy.url == new_values.c.url)
+            .values(latency=new_values.c.latency, status=new_values.c.status, updated_at=func.now())
+            .returning(TelegramProxy)
+            .execution_options(synchronize_session=False)
+        )
+
+        async with self.session_wrap(session) as wrapped_session:
+            result = await wrapped_session.execute(query)
+            return list(result.scalars().all())

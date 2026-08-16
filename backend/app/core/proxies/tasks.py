@@ -14,8 +14,6 @@ if typing.TYPE_CHECKING:
 
 @log_taskiq_decorator
 async def save_proxies_to_database_task(context: typing.Annotated[Context, TaskiqDepends()], urls: list[str]) -> None:
-    if not urls:
-        return
 
     github_gateway: GithubGateway = context.state.container.gateways.github_gateway()
     proxy_repository: ProxyRepository = context.state.container.repositories.proxy_repository()
@@ -24,3 +22,15 @@ async def save_proxies_to_database_task(context: typing.Annotated[Context, Taski
         urls_for_ping = [URL(url) for url in urls_chunk]
         proxies = await github_gateway.get_host_latency_for_urls(urls=urls_for_ping)
         await proxy_repository.save_proxies(proxies_dto=proxies)
+
+
+@log_taskiq_decorator
+async def update_proxies_in_database_task(context: typing.Annotated[Context, TaskiqDepends()], urls: list[str]) -> None:
+
+    github_gateway: GithubGateway = context.state.container.gateways.github_gateway()
+    proxy_repository: ProxyRepository = context.state.container.repositories.proxy_repository()
+
+    for urls_chunk in batched(urls, SAVE_POSTGRES_CHUNK_SIZE):  # noqa: B911
+        urls_for_ping = [URL(url) for url in urls_chunk]
+        proxies = await github_gateway.get_host_latency_for_urls(urls=urls_for_ping)
+        await proxy_repository.update_proxies(proxies_dto=proxies)

@@ -22,7 +22,10 @@ export interface PaginationInfo {
 }
 
 export interface ProxiesCounters {
+  /** Всего проксей в базе (с учётом фильтров). */
   total: number
+  /** Всего активных проксей — счётчик по всей выборке, а не по текущей странице. */
+  active: number
 }
 
 export interface ProxiesPageResult {
@@ -132,7 +135,7 @@ export async function fetchProxies({
   return {
     items: payload?.data ?? [],
     pagination: payload?.pagination ?? { next_page: null, previous_page: null },
-    counters: payload?.counters ?? { total: 0 },
+    counters: payload?.counters ?? { total: 0, active: 0 },
   }
 }
 
@@ -140,6 +143,14 @@ export async function fetchProxies({
 export async function createProxies(): Promise<TelegramProxy[]> {
   const payload = await request<DataPayload<TelegramProxy[]>>('/proxies', { method: 'POST' })
   return payload?.data ?? []
+}
+
+/**
+ * POST /api/proxies/status — бекенд перепроверяет все прокси:
+ * обновляет латенси и выставляет статус по результату пинга. Тело не нужно, ответ пустой.
+ */
+export async function updateAllProxies(): Promise<void> {
+  await request<never>('/proxies/status', { method: 'POST' })
 }
 
 /** DELETE /api/proxies — удаляет все прокси из базы. */

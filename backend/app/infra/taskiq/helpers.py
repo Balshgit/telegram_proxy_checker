@@ -7,7 +7,7 @@ from typing import Any
 from taskiq import AsyncBroker, InMemoryBroker, TaskiqResult
 from taskiq.exceptions import UnknownTaskError
 
-from app.core.proxies.tasks import save_proxies_to_database_task
+from app.core.proxies.tasks import save_proxies_to_database_task, update_proxies_in_database_task
 
 
 class TaskPeriodEnum(StrEnum):
@@ -27,7 +27,8 @@ class TaskConfig:
 
 
 TASKS: list[TaskConfig] = [
-    TaskConfig(func=save_proxies_to_database_task, labels={"timeout": 30, "retry_on_error": False, "max_retries": 0})
+    TaskConfig(func=save_proxies_to_database_task, labels={"timeout": 30, "retry_on_error": False, "max_retries": 0}),
+    TaskConfig(func=update_proxies_in_database_task, labels={"timeout": 30, "retry_on_error": False, "max_retries": 0}),
 ]
 
 _TASK_NAMES: dict[Callable[..., Any], str] = {config.func: config.func.__name__ for config in TASKS}

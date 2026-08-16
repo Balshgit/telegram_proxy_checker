@@ -22,13 +22,13 @@ class ProxyBaseDTO:
     url: URL
     latency: int | None = None
     status: ProxyStatusEnum
-    updated_at: datetime | None = None
 
 
 @dataclass(slots=True, kw_only=True)
 class ProxyDTO(ProxyBaseDTO):
     id: int
     created_at: datetime | None
+    updated_at: datetime | None = None
 
 
 @dataclass(slots=True, kw_only=True)
