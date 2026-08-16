@@ -51,7 +51,7 @@ def get_task_name(func: Callable[..., Any]) -> str:
     return task_name
 
 
-def _build_schedule(task: TaskConfig) -> list[dict[str, Any]]:
+def build_schedule(task: TaskConfig) -> list[dict[str, Any]]:
     if task.cron is None and task.interval is None:
         return []
     schedule: dict[str, Any] = {"kwargs": task.kwargs}
@@ -70,15 +70,9 @@ def register_tasks(broker: AsyncBroker) -> None:
         broker.register_task(
             func=task.func,
             task_name=task_name,
-            schedule=_build_schedule(task),
+            schedule=build_schedule(task),
             **task.labels,
         )
-
-
-_TASKS_LATENCY_THRESHOLDS: dict[str, timedelta] = {}
-
-
-_DEFAULT_THRESHOLD = timedelta(seconds=1)
 
 
 async def run_task(
