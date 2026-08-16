@@ -81,9 +81,7 @@ async def test_label_schedule_source_picks_up_cron_task(broker: InMemoryBroker) 
     schedules = await source.get_schedules()
 
     cron_schedules = [
-        schedule
-        for schedule in schedules
-        if schedule.task_name == get_task_name(cron_update_proxies_in_database_task)
+        schedule for schedule in schedules if schedule.task_name == get_task_name(cron_update_proxies_in_database_task)
     ]
 
     assert len(cron_schedules) == 1

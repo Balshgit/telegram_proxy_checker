@@ -70,8 +70,8 @@ async def _wait_for(predicate: Callable[[], bool], timeout: float = EXECUTIONS_W
 
 
 def test_default_intervals_match_taskiq_cli_defaults() -> None:
-    assert SCHEDULES_UPDATE_INTERVAL == timedelta(seconds=60)
-    assert SCHEDULER_LOOP_INTERVAL == timedelta(seconds=1)
+    assert timedelta(seconds=60) == SCHEDULES_UPDATE_INTERVAL
+    assert timedelta(seconds=1) == SCHEDULER_LOOP_INTERVAL
 
 
 async def test_start_launches_scheduler_loop(runner: TaskiqSchedulerRunner) -> None:
