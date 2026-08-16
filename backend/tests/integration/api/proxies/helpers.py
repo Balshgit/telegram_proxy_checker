@@ -13,6 +13,20 @@ from app.infra.gateways.github_gateway import GithubGateway
 
 GITHUB_PROXIES_ROUTE_NAME = "github_get_proxies"
 
+PROXY_URL_BASE = "https://proxy.example.com"
+PROXY_SECRET = "ee1337"
+MISSING_PROXY_ID = 999_999
+
+
+def build_proxy_url(server: str, port: int = 443, secret: str = PROXY_SECRET) -> str:
+    """
+    Строит урл прокси с параметрами server/port/secret ровно так, как их ждёт приложение.
+
+    `name` у прокси в базе должен совпадать с параметром `server`, иначе массовое обновление
+    (`ProxyRepository.update_proxies`) не найдёт запись: оно джойнится по `TelegramProxy.name`.
+    """
+    return str(URL(PROXY_URL_BASE, params={"server": server, "port": port, "secret": secret}))
+
 
 @asynccontextmanager
 async def mocked_github_get_proxies(raw_proxies: str) -> AsyncGenerator[MockRouter]:
@@ -85,4 +99,30 @@ async def mocked_get_host_latency(
     mock = AsyncMock(side_effect=_fake_get_host_latency)
 
     with patch.object(GithubGateway, GithubGateway.get_host_latency.__name__, mock):
+        yield mock
+
+
+@asynccontextmanager
+async def mocked_get_host_latency_by_server(
+    latency_by_server: Mapping[str, int | None] | None = None,
+    default_latency: int | None = 100,
+) -> AsyncGenerator[AsyncMock]:
+    """
+    То же, что `mocked_get_host_latency_for_urls`, но latency задаётся по параметру `server` урла.
+
+    Урл прокси проходит через `str(URL(...))` несколько раз (фабрика -> база -> сервис),
+    поэтому ключ-урл легко разъезжается на нормализации. `server` при этом не меняется
+    и именно по нему `ProxyRepository.update_proxies` находит запись в базе.
+    """
+    latency_map = latency_by_server or {}
+
+    async def _fake_get_host_latency_for_urls(urls: list[URL]) -> list[ProxyBaseDTO]:
+        return [
+            _build_proxy_dto(url=url, latency=latency_map.get(url.params.get("server", ""), default_latency))
+            for url in urls
+        ]
+
+    mock = AsyncMock(side_effect=_fake_get_host_latency_for_urls)
+
+    with patch.object(GithubGateway, GithubGateway.get_host_latency_for_urls.__name__, mock):
         yield mock

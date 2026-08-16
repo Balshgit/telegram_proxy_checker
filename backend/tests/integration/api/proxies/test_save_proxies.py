@@ -65,3 +65,51 @@ async def test_save_new_proxies_success(
         assert status_by_name[proxy_name] == (
             ProxyStatusEnum.enabled if expected_latency is not None else ProxyStatusEnum.disabled
         )
+
+
+async def test_save_proxies_when_all_proxies_already_exist(
+    rest_client: AsyncClient,
+    db_rollback_session: AsyncSession,
+    sqlalchemy_model_factory_maker: Callable[
+        [type[SQLAlchemyFactory], AsyncSession], Awaitable[type[SQLAlchemyFactory]]
+    ],
+) -> None:
+    proxy_factory = await sqlalchemy_model_factory_maker(factory_cls=TelegramProxyFactory, session=db_rollback_session)
+
+    existing_proxy = await proxy_factory.create_async(latency=42)
+    existing_proxy_id = existing_proxy.id
+
+    async with mocked_github_get_proxies(existing_proxy.url) as mocked_github:
+        response = await rest_client.post("/api/proxies")
+
+        assert mocked_github.routes[GITHUB_PROXIES_ROUTE_NAME].call_count == 1
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST, response.text
+
+    assert response.json()["error"] == {
+        "meta": {"message": None},
+        "type": "NoProxiesAddedError",
+        "title": "No proxies to add",
+    }
+
+    proxies_in_db = (await db_rollback_session.execute(select(TelegramProxy))).scalars().all()
+
+    assert [proxy.id for proxy in proxies_in_db] == [existing_proxy_id]
+
+
+async def test_save_proxies_skips_urls_without_server_and_port(
+    rest_client: AsyncClient,
+    db_rollback_session: AsyncSession,
+) -> None:
+    raw_proxies = "https://proxy.example.com?secret=ee1337\nhttps://proxy.example.com"
+
+    async with mocked_github_get_proxies(raw_proxies) as mocked_github:
+        response = await rest_client.post("/api/proxies")
+
+        assert mocked_github.routes[GITHUB_PROXIES_ROUTE_NAME].call_count == 1
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST, response.text
+
+    proxies_in_db = (await db_rollback_session.execute(select(TelegramProxy))).scalars().all()
+
+    assert proxies_in_db == []
