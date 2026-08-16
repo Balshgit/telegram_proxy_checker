@@ -12,92 +12,29 @@ import {
 } from '../api/proxies'
 import type { ProxyStatus, TelegramProxy } from '../api/proxies'
 
+import {
+  buildPageItems,
+  copyToClipboard,
+  COPY_SCOPE_EMPTY_TEXT,
+  COPY_SCOPE_STATUS,
+  filteredTotalFor,
+  formatDate,
+  latencyTone,
+  NOTHING_TO_ADD_TOAST,
+  PAGE_SIZE_OPTIONS,
+  proxyLabel,
+  STATUS_FILTERS,
+  STATUS_LABELS,
+  STATUS_OPTIONS,
+  truncate,
+} from './proxiesPage.helpers'
+import type { CopyScope, StatusFilter } from './proxiesPage.helpers'
+
 import './ProxiesPage.css'
 
-const PAGE_SIZE_OPTIONS = [10, 25, 50, 100]
-
-/** Сколько соседних страниц показываем слева и справа от текущей. */
-const PAGE_WINDOW = 2
-/** До этого количества страниц список выводим целиком, без многоточий. */
-const PAGES_WITHOUT_GAPS = 7
-
-/** Элемент пагинации: либо номер страницы, либо «…» (ключи разные, чтобы React не ругался). */
-type PageItem = number | 'gap-start' | 'gap-end'
-
-/**
- * Собирает список страниц вида «1 … 4 5 6 … 20»:
- * первая и последняя всегда на месте, вокруг текущей — окно из соседей.
- */
-function buildPageItems(currentPage: number, totalPages: number): PageItem[] {
-  if (totalPages <= PAGES_WITHOUT_GAPS) {
-    return Array.from({ length: totalPages }, (_, index) => index + 1)
-  }
-
-  const items: PageItem[] = [1]
-  const from = Math.max(2, currentPage - PAGE_WINDOW)
-  const to = Math.min(totalPages - 1, currentPage + PAGE_WINDOW)
-
-  if (from > 2) {
-    items.push('gap-start')
-  }
-  for (let page = from; page <= to; page += 1) {
-    items.push(page)
-  }
-  if (to < totalPages - 1) {
-    items.push('gap-end')
-  }
-  items.push(totalPages)
-
-  return items
-}
-
-type StatusFilter = ProxyStatus | 'all'
 type PendingAction = 'create' | 'delete' | 'refresh-all' | null
 /** Что именно сейчас происходит с конкретной строкой таблицы. */
 type RowAction = 'refresh' | 'status'
-
-/**
- * Какую выборку копируем карточкой-счётчиком:
- * `all` — все прокси, `active` — только со статусом `enabled`.
- */
-type CopyScope = 'all' | 'active'
-
-const COPY_SCOPE_STATUS: Record<CopyScope, ProxyStatus | null> = {
-  all: null,
-  active: 'enabled',
-}
-
-const COPY_SCOPE_EMPTY_TEXT: Record<CopyScope, string> = {
-  all: 'Список прокси пуст',
-  active: 'Активных прокси нет',
-}
-
-/**
- * Копирование с запасным вариантом: `navigator.clipboard` доступен только в
- * secure context (https или localhost), а фронт могут открыть и по http.
- */
-async function copyToClipboard(text: string): Promise<void> {
-  if (navigator.clipboard?.writeText) {
-    await navigator.clipboard.writeText(text)
-    return
-  }
-
-  const textarea = document.createElement('textarea')
-  textarea.value = text
-  textarea.setAttribute('readonly', '')
-  textarea.style.position = 'fixed'
-  textarea.style.opacity = '0'
-  document.body.appendChild(textarea)
-
-  try {
-    textarea.select()
-    if (!document.execCommand('copy')) {
-      throw new Error('execCommand("copy") вернул false')
-    }
-  } finally {
-    document.body.removeChild(textarea)
-  }
-}
 
 interface Toast {
   id: number
@@ -111,68 +48,6 @@ const TOAST_ICONS: Record<Toast['kind'], string> = {
   success: '✓',
   error: '⚠',
   info: 'ℹ',
-}
-
-/**
- * Штатный ответ бекенда «нечего добавлять»: в источнике не нашлось ни одной
- * прокси, которой ещё нет в базе. Это не ошибка, поэтому показываем спокойный
- * info-тост, а не красный «что-то сломалось».
- */
-const NOTHING_TO_ADD_TOAST = {
-  text: 'Новых прокси не нашлось',
-  hint: 'Источник не отдал ничего, чего ещё нет в списке. Загляните позже — список пополняется.',
-} as const
-
-const STATUS_LABELS: Record<ProxyStatus, string> = {
-  enabled: 'Активен',
-  disabled: 'Неактивен',
-}
-
-const STATUS_OPTIONS: ProxyStatus[] = ['enabled', 'disabled']
-
-const STATUS_FILTERS: { value: StatusFilter; label: string }[] = [
-  { value: 'all', label: 'Все' },
-  { value: 'enabled', label: 'Активные' },
-  { value: 'disabled', label: 'Неактивные' },
-]
-
-function formatDate(value: string | null): string {
-  if (!value) {
-    return '—'
-  }
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) {
-    return value
-  }
-  return new Intl.DateTimeFormat('ru-RU', {
-    day: '2-digit',
-    month: '2-digit',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  }).format(date)
-}
-
-function latencyTone(latency: number | null): string {
-  if (latency == null) {
-    return 'none'
-  }
-  if (latency < 300) {
-    return 'good'
-  }
-  if (latency < 1000) {
-    return 'medium'
-  }
-  return 'bad'
-}
-
-function truncate(value: string, max: number): string {
-  return value.length > max ? `${value.slice(0, max)}…` : value
-}
-
-/** Как называть прокси в тостах и подписях: по имени, а если его нет — по id. */
-function proxyLabel(proxy: TelegramProxy): string {
-  return proxy.name ? `«${truncate(proxy.name, 32)}»` : `#${proxy.id}`
 }
 
 function ProxiesPage() {
@@ -434,8 +309,7 @@ function ProxiesPage() {
    * Бекенд отдаёт счётчики по всей базе (total) и по активным (active),
    * без учёта фильтра — поэтому размер текущей выборки считаем сами.
    */
-  const filteredTotal =
-    statusFilter === 'enabled' ? activeCount : statusFilter === 'disabled' ? Math.max(0, total - activeCount) : total
+  const filteredTotal = filteredTotalFor(statusFilter, total, activeCount)
 
   const currentPage = Math.floor(offset / limit) + 1
   /**
