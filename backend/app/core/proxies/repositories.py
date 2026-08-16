@@ -30,6 +30,17 @@ class ProxyRepository(BaseDBRepository):
         async with self.session_wrap(session) as wrapped_session:
             return await self.get_multiple_results(query=query, session=wrapped_session, as_scalars=True)
 
+    async def get_proxies_urls(
+        self, status: ProxyStatusEnum | None = None, session: AsyncSession | None = None
+    ) -> list[str]:
+        query = select(TelegramProxy.url).order_by(TelegramProxy.latency, TelegramProxy.id)
+
+        if status:
+            query = query.where(TelegramProxy.status == status)
+
+        async with self.session_wrap(session) as wrapped_session:
+            return await self.get_multiple_results(query=query, session=wrapped_session, as_scalars=True)
+
     async def get_paginated_proxies(
         self,
         filters: ProxyFilterDTO,

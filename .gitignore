@@ -256,4 +256,4 @@ helm/Chart.lock
 /prof/
 /artifacts/
 .editorconfig
-./delete_me
+delete_me

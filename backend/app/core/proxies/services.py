@@ -25,6 +25,10 @@ class ProxyService:
     ) -> tuple[Page[list[TelegramProxy]], ProxyCountersDTO]:
         return await self.repository.get_paginated_proxies(filters=filters, pagination=pagination)
 
+    async def get_raw_proxies_urls(self, status: ProxyStatusEnum | None) -> str:
+        urls = await self.repository.get_proxies_urls(status=status)
+        return "\n".join(url for url in urls)
+
     async def add_new_proxies(self) -> list[TelegramProxy]:
         new_proxies_urls = await self.github_gateway.get_urls_for_ping()
         existing_proxies = await self.repository.get_all_proxies()

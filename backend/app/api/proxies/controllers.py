@@ -3,10 +3,12 @@ from typing import Annotated
 
 from dependency_injector.wiring import inject
 from fastapi import APIRouter, Body, Depends, Path, Query
+from fastapi.responses import PlainTextResponse
 from starlette import status
 
 from app.api.base_deps import get_offset_pagination
 from app.api.base_schemas import OkResponse, PaginationResponseWithCounters
+from app.api.constants import PLAIN_TEXT_MEDIA_TYPE
 from app.api.exceptions import ResourceNotFoundByIDError
 from app.api.proxies.exceptions import NoProxiesAddedAPIError
 from app.api.proxies.serializers import ProxiesCounters, TelegramProxySerializer, UpdateProxyRequestSerializer
@@ -58,6 +60,41 @@ async def get_paginated_proxies(
         counters_model=ProxiesCounters,
         counters=counters,
     )
+
+
+@router.get(
+    "/proxies/raw",
+    name="proxies:get_raw_proxies",
+    status_code=status.HTTP_200_OK,
+    summary="Выгрузка урлов проксей в сыром виде",
+    description="Отдаёт урлы проксей одним текстовым буфером: каждый урл с новой строки",
+    response_class=PlainTextResponse,
+    responses={
+        status.HTTP_200_OK: {
+            "description": "Урлы проксей, каждый с новой строки",
+            "content": {
+                PLAIN_TEXT_MEDIA_TYPE: {
+                    "schema": {"type": "string"},
+                    "example": (
+                        "https://proxy.lodkirmm.ru?server=1.2.3.4&port=443&secret=ee1337\n"
+                        "https://ad1.arixo.shop?server=5.6.7.8&port=443&secret=ee7331"
+                    ),
+                }
+            },
+        }
+    },
+)
+@inject
+async def get_raw_proxies(
+    proxy_service: Annotated[ProxyService, Depends(AsyncProvide[Container.services.proxy_service])],
+    proxy_status: Annotated[
+        ProxyStatusEnum | None, Query(..., alias="status", description="Какие прокси выгружать")
+    ] = None,
+) -> PlainTextResponse:
+
+    raw_proxies = await proxy_service.get_raw_proxies_urls(status=proxy_status)
+
+    return PlainTextResponse(content=raw_proxies, status_code=status.HTTP_200_OK)
 
 
 @router.post(
