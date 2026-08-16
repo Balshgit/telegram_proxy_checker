@@ -6,6 +6,7 @@ from app.infra.adapters.taskiq import initialize_taskiq_inmemory_broker, initial
 from app.infra.sqlalchemy.engines import DatabaseEngines
 from app.infra.taskiq.constants import TaskiqBrokerTypeEnum
 from app.infra.taskiq.executor import TaskiqTasksExecutor
+from app.infra.taskiq.scheduler_runner import TaskiqSchedulerRunner
 
 
 class InfraContainer(containers.DeclarativeContainer):
@@ -35,3 +36,4 @@ class InfraContainer(containers.DeclarativeContainer):
         TaskiqScheduler, broker=taskiq_broker, sources=providers.List(taskiq_broker_source)
     )
     taskiq_tasks_executor = providers.Singleton(TaskiqTasksExecutor, broker=taskiq_broker)
+    taskiq_scheduler_runner = providers.Singleton(TaskiqSchedulerRunner, scheduler=taskiq_scheduler)

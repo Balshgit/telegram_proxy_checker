@@ -9,6 +9,7 @@ from app.core.shared.utils import log_taskiq_decorator
 
 if typing.TYPE_CHECKING:
     from app.core.proxies.repositories import ProxyRepository
+    from app.core.proxies.services import ProxyService
     from app.infra.gateways.github_gateway import GithubGateway
 
 
@@ -34,3 +35,10 @@ async def update_proxies_in_database_task(context: typing.Annotated[Context, Tas
         urls_for_ping = [URL(url) for url in urls_chunk]
         proxies = await github_gateway.get_host_latency_for_urls(urls=urls_for_ping)
         await proxy_repository.update_proxies(proxies_dto=proxies)
+
+
+@log_taskiq_decorator
+async def cron_update_proxies_in_database_task(context: typing.Annotated[Context, TaskiqDepends()]) -> None:
+
+    proxy_service: ProxyService = context.state.container.services.proxy_service()
+    await proxy_service.update_all_proxies()

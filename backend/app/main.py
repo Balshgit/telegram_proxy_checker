@@ -84,7 +84,16 @@ class Application:
             broker.state.container = self.container
         await broker.startup()
 
+        # все кроновые/интервальные задачи стартуют вместе с приложением
+        # команда taskiq_scheduler в docker/docker-entrypoint.sh теперь дублирует встроенный планировщик.
+        # Если запустить её параллельно с API, задачи будут отправляться дважды.
+        # И то же самое при uvicorn --workers > 1: планировщик поднимется в каждом воркере
+        scheduler_runner = self.container.infra.taskiq_scheduler_runner()
+        await scheduler_runner.start()
+
         yield
+
+        await scheduler_runner.stop()
 
         shutdown_resources = self.container.shutdown_resources()
         if shutdown_resources is not None:
