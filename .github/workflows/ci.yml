@@ -1,0 +1,153 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, master, develop ]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  UV_VERSION: "0.9.7"
+  NODE_VERSION: "20"
+
+jobs:
+  backend-lint:
+    name: Backend lint
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+          cache-dependency-glob: backend/uv.lock
+
+      - name: Install python
+        run: uv python install
+
+      - name: Install dependencies
+        run: uv sync --locked --all-groups
+
+      - name: Prepare env files
+        working-directory: .
+        run: |
+          cp envs/.env.template envs/.env
+          cp envs/.env.tests.template envs/.env.tests
+
+      - name: Format and lint
+        run: make format && make lint
+
+      - name: Fail if formatting changed files
+        run: |
+          if ! git diff --exit-code; then
+            echo "::error::Code is not formatted. Run 'make format' locally and commit the result."
+            exit 1
+          fi
+
+  backend-tests:
+    name: Backend tests
+    runs-on: ubuntu-latest
+    needs: backend-lint
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      STAGE: local.runtests
+      RYUK_CONTAINER_IMAGE: testcontainers/ryuk:0.8.1
+      TESTCONTAINERS_RYUK_DISABLED: "false"
+      DOCKER_HOST: unix:///var/run/docker.sock
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Check docker
+        run: docker info
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+          cache-dependency-glob: backend/uv.lock
+
+      - name: Install python
+        run: uv python install
+
+      - name: Install dependencies
+        run: uv sync --locked --all-groups
+
+      - name: Prepare env files
+        working-directory: .
+        run: |
+          cp envs/.env.template envs/.env
+          cp envs/.env.tests.template envs/.env.tests
+
+      - name: Pull testcontainers images
+        run: |
+          docker pull "${RYUK_CONTAINER_IMAGE}"
+          docker pull postgres:18.4
+
+      - name: Run integration tests
+        run: |
+          uv run pytest tests/integration \
+            --verbose \
+            --cov=app \
+            --cov-branch \
+            --cov-report=term-missing \
+            --cov-report=xml:coverage-integrations.xml \
+            --junitxml=junit-report-integraions-tests.xml \
+            -p no:repeat \
+            -p no:sugar \
+            -p no:metadata \
+            -p no:order
+
+      - name: Upload test artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-test-reports
+          path: |
+            backend/coverage-integrations.xml
+            backend/junit-report-integraions-tests.xml
+          if-no-files-found: ignore
+
+  frontend-tests:
+    name: Frontend tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Setup node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck && npm run typecheck:test
+
+      - name: Run tests
+        run: npm run test:coverage
+
+      - name: Upload coverage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-coverage
+          path: frontend/coverage
+          if-no-files-found: ignore
