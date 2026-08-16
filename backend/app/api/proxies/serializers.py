@@ -18,6 +18,7 @@ class ProxiesCounters(BaseModel):
 class TelegramProxySerializer(BaseModel):
 
     id: Annotated[int, Field(..., description="ID прокси")]
+    name: Annotated[str, Field(..., description="Имя прокси")]
     tg_proxy_url: Annotated[Url, Field(..., alias="url", description="Урл прокси")]
     created_at: Annotated[datetime, Field(..., description="Дата создания урла прокси")]
     updated_at: Annotated[datetime | None, Field(..., description="Дата обновления урла прокси")]

@@ -3,6 +3,7 @@ import time
 from contextlib import suppress
 from dataclasses import dataclass
 from http import HTTPMethod
+from typing import cast
 
 from httpx import URL, QueryParams
 
@@ -29,7 +30,7 @@ class GithubGateway:
         urls_to_ping = []
         for url in proxy_urls:
             proxy_server = self._get_params_from_proxy(url.params)
-            if not proxy_server.host or not proxy_server.port:
+            if not proxy_server.host and not proxy_server.port:
                 continue
             urls_to_ping.append(url)
         return urls_to_ping
@@ -39,6 +40,7 @@ class GithubGateway:
             proxy_url = URL(proxy_url)
         proxy_server = self._get_params_from_proxy(proxy_url.params)
         started_at = time.monotonic()
+        proxy_name = cast(str, proxy_server.host)
 
         try:
             async with asyncio.timeout(PROXY_PING_TIMEOUT):
@@ -47,10 +49,10 @@ class GithubGateway:
                     writer.close()
                     await writer.wait_closed()
         except Exception:  # noqa: BLE001
-            return ProxyBaseDTO(url=proxy_url, latency=None, status=ProxyStatusEnum.disabled)
+            return ProxyBaseDTO(name=proxy_name, url=proxy_url, latency=None, status=ProxyStatusEnum.disabled)
 
         latency = int((time.monotonic() - started_at) * 1000)
-        return ProxyBaseDTO(url=proxy_url, latency=latency, status=ProxyStatusEnum.enabled)
+        return ProxyBaseDTO(name=proxy_name, url=proxy_url, latency=latency, status=ProxyStatusEnum.enabled)
 
     async def get_host_latency_for_urls(self, urls: list[URL]) -> list[ProxyBaseDTO]:
         tasks = [self.get_host_latency(url) for url in urls]
