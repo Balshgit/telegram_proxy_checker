@@ -15,4 +15,5 @@ class ServicesContainer(containers.DeclarativeContainer):
         ProxyService,
         repository=repositories.proxy_repository,
         github_gateway=gateways.github_gateway,
+        taskiq_tasks_executor=infra.taskiq_tasks_executor,
     )

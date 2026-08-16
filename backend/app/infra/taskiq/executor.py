@@ -5,6 +5,8 @@ from loguru import logger
 from taskiq import AsyncBroker, AsyncTaskiqTask, TaskiqResult
 from taskiq.exceptions import UnknownTaskError
 
+from app.infra.taskiq.helpers import get_task_name
+
 
 class TaskiqTasksExecutor:
     def __init__(self, broker: AsyncBroker) -> None:
@@ -13,7 +15,7 @@ class TaskiqTasksExecutor:
     async def run(
         self, func: Callable[..., Any], params: dict[str, Any], execution_options: dict[str, Any] | None = None
     ) -> AsyncTaskiqTask[Any]:
-        task_name = func.__name__
+        task_name = get_task_name(func)
         logger.info("creating taskiq task", task_name=task_name, params=params)
         task = self.broker.find_task(task_name)
         if not task:

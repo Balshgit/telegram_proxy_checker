@@ -1,5 +1,7 @@
 from datetime import datetime
+from urllib.parse import urlencode
 
+from httpx import URL
 from polyfactory.factories.sqlalchemy_factory import SQLAlchemyFactory
 
 from app.core.proxies.constants import ProxyStatusEnum
@@ -12,7 +14,12 @@ class TelegramProxyFactory(SQLAlchemyFactory[TelegramProxy]):
 
     @classmethod
     def url(cls) -> str:
-        return cls.__faker__.url()
+        params = {
+            "server": cls.__faker__.hostname(),
+            "port": cls.__faker__.random_int(min=1, max=9999),
+            "secret": cls.__faker__.uuid4(),
+        }
+        return str(URL(cls.__faker__.url(), params=urlencode(params)))
 
     @classmethod
     def updated_at(cls) -> datetime | None:

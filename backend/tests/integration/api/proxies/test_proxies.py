@@ -4,7 +4,7 @@ from typing import Any
 
 import pytest
 from assertpy import assert_that
-from httpx import AsyncClient
+from httpx import URL, AsyncClient
 from polyfactory.factories.sqlalchemy_factory import SQLAlchemyFactory
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette import status
@@ -54,7 +54,7 @@ async def test_get_all_proxies(
     assert data == [
         {
             "id": proxy_1.id,
-            "url": proxy_1.url,
+            "url": URL("tg://proxy", params=URL(proxy_1.url).params),
             "created_at": proxy_1.created_at.isoformat(),
             "updated_at": None,
             "status": proxy_1.status,
@@ -62,7 +62,7 @@ async def test_get_all_proxies(
         },
         {
             "id": proxy_2.id,
-            "url": proxy_2.url,
+            "url": URL("tg://proxy", params=URL(proxy_2.url).params),
             "created_at": proxy_2.created_at.isoformat(),
             "updated_at": None,
             "status": proxy_2.status,
@@ -70,7 +70,7 @@ async def test_get_all_proxies(
         },
         {
             "id": proxy_3.id,
-            "url": proxy_3.url,
+            "url": URL("tg://proxy", params=URL(proxy_3.url).params),
             "created_at": proxy_3.created_at.isoformat(),
             "updated_at": None,
             "status": proxy_3.status,
@@ -216,7 +216,7 @@ async def test_get_all_proxies_with_best_latency_on_top(
     assert data == [
         {
             "id": proxy_2.id,
-            "url": proxy_2.url,
+            "url": URL("tg://proxy", params=URL(proxy_2.url).params),
             "created_at": proxy_2.created_at.isoformat(),
             "updated_at": proxy_2.updated_at.isoformat(),
             "status": proxy_2.status,
@@ -224,7 +224,7 @@ async def test_get_all_proxies_with_best_latency_on_top(
         },
         {
             "id": proxy_1.id,
-            "url": proxy_1.url,
+            "url": URL("tg://proxy", params=URL(proxy_1.url).params),
             "created_at": proxy_1.created_at.isoformat(),
             "updated_at": None,
             "status": proxy_1.status,
@@ -232,7 +232,7 @@ async def test_get_all_proxies_with_best_latency_on_top(
         },
         {
             "id": proxy_3.id,
-            "url": proxy_3.url,
+            "url": URL("tg://proxy", params=URL(proxy_3.url).params),
             "created_at": proxy_3.created_at.isoformat(),
             "updated_at": None,
             "status": proxy_3.status,

@@ -1,4 +1,4 @@
-from collections.abc import AsyncGenerator, Awaitable
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from typing import Any
 
@@ -72,8 +72,9 @@ class Application:
 
     @asynccontextmanager
     async def lifespan(self, _: FastAPI) -> AsyncGenerator[None]:
-        if isinstance(self.container.init_resources, Awaitable):
-            await self.container.init_resources()
+        init_resources = self.container.init_resources()
+        if init_resources is not None:
+            await init_resources
 
         self._configure_orm_mappers()
         await self.container.infra.database_engines().create_all_tables()
@@ -84,8 +85,10 @@ class Application:
         await broker.startup()
 
         yield
-        if isinstance(self.container.shutdown_resources, Awaitable):
-            await self.container.shutdown_resources()
+
+        shutdown_resources = self.container.shutdown_resources()
+        if shutdown_resources is not None:
+            await shutdown_resources
 
         await broker.shutdown()
         await self.container.infra.database_engines().disconnect()

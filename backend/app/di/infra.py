@@ -13,24 +13,22 @@ class InfraContainer(containers.DeclarativeContainer):
 
     database_engines: providers.Singleton[DatabaseEngines] = providers.Singleton(DatabaseEngines.build, settings=config)
 
-    taskiq_in_memory_broker = providers.Factory(
+    taskiq_in_memory_broker = providers.Singleton(
         initialize_taskiq_inmemory_broker,
     )
 
-    taskiq_rabbitmq_broker = providers.Factory(
+    taskiq_rabbitmq_broker = providers.Singleton(
         initialize_taskiq_rabbitmq_broker,
         broker_url=config.TASKIQ_BROKER_URL,
     )
 
-    _taskiq_broker_factory_selector = providers.Selector(
+    taskiq_broker = providers.Selector(
         config.TASKIQ_BROKER_TYPE,
         **{
             str(TaskiqBrokerTypeEnum.in_memory): taskiq_in_memory_broker,
             str(TaskiqBrokerTypeEnum.aio_pika): taskiq_rabbitmq_broker,
         },
     )
-
-    taskiq_broker = providers.Resource(_taskiq_broker_factory_selector)
 
     taskiq_broker_source = providers.Singleton(LabelScheduleSource, broker=taskiq_broker)
     taskiq_scheduler = providers.Singleton(

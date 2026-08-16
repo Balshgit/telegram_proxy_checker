@@ -22,7 +22,10 @@ export interface PaginationInfo {
 }
 
 export interface ProxiesCounters {
+  /** Всего проксей в базе (с учётом фильтров). */
   total: number
+  /** Всего активных проксей — счётчик по всей выборке, а не по текущей странице. */
+  active: number
 }
 
 export interface ProxiesPageResult {
@@ -81,7 +84,7 @@ async function request<TPayload>(path: string, init?: RequestInit): Promise<TPay
   try {
     response = await fetch(`${API_BASE}${path}`, {
       ...init,
-      headers: { Accept: 'application/json' },
+      headers: { Accept: 'application/json', ...(init?.headers as Record<string, string> | undefined) },
     })
   } catch {
     throw new ApiRequestError('Не удалось связаться с сервером. Проверьте, что бекенд запущен.', 0)
@@ -132,7 +135,7 @@ export async function fetchProxies({
   return {
     items: payload?.data ?? [],
     pagination: payload?.pagination ?? { next_page: null, previous_page: null },
-    counters: payload?.counters ?? { total: 0 },
+    counters: payload?.counters ?? { total: 0, active: 0 },
   }
 }
 
@@ -142,7 +145,53 @@ export async function createProxies(): Promise<TelegramProxy[]> {
   return payload?.data ?? []
 }
 
+/**
+ * POST /api/proxies/status — бекенд перепроверяет все прокси:
+ * обновляет латенси и выставляет статус по результату пинга. Тело не нужно, ответ пустой.
+ */
+export async function updateAllProxies(): Promise<void> {
+  await request<never>('/proxies/status', { method: 'POST' })
+}
+
 /** DELETE /api/proxies — удаляет все прокси из базы. */
 export async function deleteAllProxies(): Promise<void> {
   await request<never>('/proxies', { method: 'DELETE' })
+}
+
+export interface UpdateProxyParams {
+  /** Новый статус прокси. Если не передан — статус не меняется. */
+  status?: ProxyStatus | null
+  /**
+   * Попросить бекенд заново пропинговать прокси.
+   * Внимание: в этом случае бекенд сам выставит статус по результату пинга
+   * (enabled, если ответ получен, иначе disabled), перекрыв переданный `status`.
+   */
+  isLatencyUpdate?: boolean
+}
+
+/**
+ * PATCH /api/proxies/{proxy_id} — обновление одной прокси.
+ *
+ * Тело запроса: `{ status?: 'enabled' | 'disabled', is_latency_update: boolean }`.
+ * Ответ: конверт с обновлённой проксей в `payload.data`.
+ */
+export async function updateProxy(
+  proxyId: number,
+  { status = null, isLatencyUpdate = false }: UpdateProxyParams,
+): Promise<TelegramProxy | null> {
+  const body: { status?: ProxyStatus; is_latency_update: boolean } = {
+    is_latency_update: isLatencyUpdate,
+  }
+
+  if (status) {
+    body.status = status
+  }
+
+  const payload = await request<DataPayload<TelegramProxy>>(`/proxies/${proxyId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+
+  return payload?.data ?? null
 }

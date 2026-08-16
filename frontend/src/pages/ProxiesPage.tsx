@@ -1,10 +1,12 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
 import {
   ApiRequestError,
   createProxies,
   deleteAllProxies,
   fetchProxies,
+  updateAllProxies,
+  updateProxy,
 } from '../api/proxies'
 import type { ProxyStatus, TelegramProxy } from '../api/proxies'
 
@@ -13,7 +15,9 @@ import './ProxiesPage.css'
 const PAGE_SIZE_OPTIONS = [10, 25, 50, 100]
 
 type StatusFilter = ProxyStatus | 'all'
-type PendingAction = 'create' | 'delete' | null
+type PendingAction = 'create' | 'delete' | 'refresh-all' | null
+/** Что именно сейчас происходит с конкретной строкой таблицы. */
+type RowAction = 'refresh' | 'status'
 
 interface Toast {
   id: number
@@ -25,6 +29,8 @@ const STATUS_LABELS: Record<ProxyStatus, string> = {
   enabled: 'Активен',
   disabled: 'Неактивен',
 }
+
+const STATUS_OPTIONS: ProxyStatus[] = ['enabled', 'disabled']
 
 const STATUS_FILTERS: { value: StatusFilter; label: string }[] = [
   { value: 'all', label: 'Все' },
@@ -82,6 +88,7 @@ function truncate(value: string, max: number): string {
 function ProxiesPage() {
   const [proxies, setProxies] = useState<TelegramProxy[]>([])
   const [total, setTotal] = useState(0)
+  const [activeCount, setActiveCount] = useState(0)
   const [hasNextPage, setHasNextPage] = useState(false)
 
   const [limit, setLimit] = useState(PAGE_SIZE_OPTIONS[0])
@@ -93,6 +100,7 @@ function ProxiesPage() {
   const [pendingAction, setPendingAction] = useState<PendingAction>(null)
   const [isConfirmOpen, setIsConfirmOpen] = useState(false)
   const [copiedId, setCopiedId] = useState<number | null>(null)
+  const [rowPending, setRowPending] = useState<Record<number, RowAction>>({})
   const [toasts, setToasts] = useState<Toast[]>([])
 
   const toastSeq = useRef(0)
@@ -122,6 +130,7 @@ function ProxiesPage() {
         }
         setProxies(page.items)
         setTotal(page.counters.total)
+        setActiveCount(page.counters.active)
         setHasNextPage(Boolean(page.pagination.next_page))
       } catch (error) {
         if (signal?.aborted) {
@@ -158,6 +167,23 @@ function ProxiesPage() {
     }
   }, [loadProxies, pushToast])
 
+  /**
+   * POST /api/proxies/status — бекенд перепроверяет все прокси,
+   * после чего перезагружаем список через GET /api/proxies.
+   */
+  const handleRefreshAllProxies = useCallback(async () => {
+    setPendingAction('refresh-all')
+    try {
+      await updateAllProxies()
+      pushToast('success', 'Прокси обновлены')
+      await loadProxies()
+    } catch (error) {
+      pushToast('error', error instanceof ApiRequestError ? error.message : 'Не удалось обновить прокси')
+    } finally {
+      setPendingAction(null)
+    }
+  }, [loadProxies, pushToast])
+
   const handleDeleteAll = useCallback(async () => {
     setIsConfirmOpen(false)
     setPendingAction('delete')
@@ -186,9 +212,72 @@ function ProxiesPage() {
     [pushToast],
   )
 
-  const enabledCount = useMemo(
-    () => proxies.filter((proxy) => proxy.status === 'enabled').length,
-    [proxies],
+  /**
+   * PATCH /api/proxies/{id}: точечно обновляет строку без перезагрузки всей таблицы.
+   * Если после обновления прокси перестала подходить под активный фильтр — перезагружаем список.
+   */
+  const patchProxy = useCallback(
+    async (proxy: TelegramProxy, action: RowAction, params: { status?: ProxyStatus; isLatencyUpdate?: boolean }) => {
+      setRowPending((current) => ({ ...current, [proxy.id]: action }))
+      try {
+        const updated = await updateProxy(proxy.id, params)
+
+        if (!updated) {
+          await loadProxies()
+          return
+        }
+
+        if (statusFilter !== 'all' && updated.status !== statusFilter) {
+          pushToast('success', `Прокси #${proxy.id}: статус — ${STATUS_LABELS[updated.status]}`)
+          await loadProxies()
+          return
+        }
+
+        setProxies((current) => current.map((item) => (item.id === updated.id ? updated : item)))
+
+        // Строку обновляем точечно, поэтому счётчик активных подправляем вручную.
+        if (updated.status !== proxy.status) {
+          setActiveCount((current) =>
+            updated.status === 'enabled' ? current + 1 : Math.max(0, current - 1),
+          )
+        }
+
+        pushToast(
+          'success',
+          action === 'refresh'
+            ? `Прокси #${proxy.id} проверена: ${updated.latency == null ? 'нет ответа' : `${updated.latency} мс`}`
+            : `Прокси #${proxy.id}: статус — ${STATUS_LABELS[updated.status]}`,
+        )
+      } catch (error) {
+        pushToast(
+          'error',
+          error instanceof ApiRequestError ? error.message : `Не удалось обновить прокси #${proxy.id}`,
+        )
+      } finally {
+        setRowPending((current) => {
+          const next = { ...current }
+          delete next[proxy.id]
+          return next
+        })
+      }
+    },
+    [loadProxies, pushToast, statusFilter],
+  )
+
+  /** Кнопка «обновить»: бекенд заново пингует прокси и сам выставляет статус по результату. */
+  const handleRefreshProxy = useCallback(
+    (proxy: TelegramProxy) => patchProxy(proxy, 'refresh', { isLatencyUpdate: true }),
+    [patchProxy],
+  )
+
+  const handleStatusChange = useCallback(
+    (proxy: TelegramProxy, status: ProxyStatus) => {
+      if (status === proxy.status) {
+        return
+      }
+      return patchProxy(proxy, 'status', { status })
+    },
+    [patchProxy],
   )
 
   const isBusy = pendingAction !== null
@@ -218,8 +307,8 @@ function ProxiesPage() {
               <span className="stat-card__label">Всего</span>
             </div>
             <div className="stat-card stat-card--accent">
-              <span className="stat-card__value">{enabledCount}</span>
-              <span className="stat-card__label">Активных на странице</span>
+              <span className="stat-card__value">{activeCount}</span>
+              <span className="stat-card__label">Активных</span>
             </div>
           </div>
         </header>
@@ -231,14 +320,56 @@ function ProxiesPage() {
               className="btn btn--red"
               onClick={() => setIsConfirmOpen(true)}
               disabled={isBusy || (total === 0 && !isLoading)}
+              title="Удалить все прокси"
             >
-              {pendingAction === 'delete' ? <span className="btn__spinner" /> : <span>🗑</span>}
-              Удалить все прокси
+              {pendingAction === 'delete' ? (
+                <span className="btn__spinner" />
+              ) : (
+                <span className="btn__icon" aria-hidden="true">
+                  🗑
+                </span>
+              )}
+              <span className="btn__text">
+                Удалить<span className="btn__text-extra"> все прокси</span>
+              </span>
             </button>
 
-            <button type="button" className="btn btn--blue" onClick={handleAddProxies} disabled={isBusy}>
-              {pendingAction === 'create' ? <span className="btn__spinner" /> : <span>＋</span>}
-              Добавить прокси
+            <button
+              type="button"
+              className="btn btn--blue"
+              onClick={handleAddProxies}
+              disabled={isBusy}
+              title="Добавить прокси"
+            >
+              {pendingAction === 'create' ? (
+                <span className="btn__spinner" />
+              ) : (
+                <span className="btn__icon" aria-hidden="true">
+                  ＋
+                </span>
+              )}
+              <span className="btn__text">
+                Добавить<span className="btn__text-extra"> прокси</span>
+              </span>
+            </button>
+
+            <button
+              type="button"
+              className="btn btn--green"
+              onClick={() => void handleRefreshAllProxies()}
+              disabled={isBusy || (total === 0 && !isLoading)}
+              title="Перепроверить все прокси"
+            >
+              {pendingAction === 'refresh-all' ? (
+                <span className="btn__spinner" />
+              ) : (
+                <span className="btn__icon" aria-hidden="true">
+                  ⟳
+                </span>
+              )}
+              <span className="btn__text">
+                Обновить<span className="btn__text-extra"> прокси</span>
+              </span>
             </button>
           </div>
 
@@ -261,7 +392,7 @@ function ProxiesPage() {
             </div>
 
             <label className="page-size">
-              <span>На странице</span>
+              <span className="page-size__label">На странице</span>
               <select
                 value={limit}
                 onChange={(event) => {
@@ -269,6 +400,8 @@ function ProxiesPage() {
                   setOffset(0)
                 }}
                 disabled={isBusy}
+                aria-label="Элементов на странице"
+                title="Элементов на странице"
               >
                 {PAGE_SIZE_OPTIONS.map((size) => (
                   <option key={size} value={size}>
@@ -280,12 +413,15 @@ function ProxiesPage() {
 
             <button
               type="button"
-              className="btn btn--ghost"
+              className={`icon-btn icon-btn--reload${isLoading ? ' is-loading' : ''}`}
               onClick={() => void loadProxies()}
               disabled={isBusy || isLoading}
-              title="Обновить список"
+              title="Перезагрузить список"
+              aria-label="Перезагрузить список"
             >
-              ⟳ Обновить
+              <span className="icon-btn__glyph" aria-hidden="true">
+                ↻
+              </span>
             </button>
           </div>
         </div>
@@ -343,6 +479,8 @@ function ProxiesPage() {
                 <tbody>
                   {proxies.map((proxy) => {
                     const { server, port, secret } = parseProxyUrl(proxy.url)
+                    const rowAction = rowPending[proxy.id]
+                    const isRowBusy = rowAction !== undefined
                     return (
                       <tr key={proxy.id}>
                         <td className="col-id" data-label="ID">
@@ -359,10 +497,35 @@ function ProxiesPage() {
                           </div>
                         </td>
                         <td className="col-status" data-label="Статус">
-                          <span className={`badge badge--${proxy.status}`}>
-                            <span className="badge__dot" />
-                            {STATUS_LABELS[proxy.status] ?? proxy.status}
-                          </span>
+                          <div
+                            className={`status-select status-select--${proxy.status}${
+                              rowAction === 'status' ? ' is-busy' : ''
+                            }`}
+                          >
+                            <span className="status-select__dot" aria-hidden="true" />
+                            <span className="status-select__label">
+                              {STATUS_LABELS[proxy.status] ?? proxy.status}
+                            </span>
+                            <span className="status-select__caret" aria-hidden="true">
+                              {rowAction === 'status' ? <span className="btn__spinner" /> : '▾'}
+                            </span>
+                            <select
+                              className="status-select__field"
+                              value={proxy.status}
+                              onChange={(event) => {
+                                void handleStatusChange(proxy, event.target.value as ProxyStatus)
+                              }}
+                              disabled={isBusy || isRowBusy}
+                              aria-label={`Статус прокси #${proxy.id}`}
+                              title="Изменить статус прокси"
+                            >
+                              {STATUS_OPTIONS.map((status) => (
+                                <option key={status} value={status}>
+                                  {STATUS_LABELS[status]}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
                         </td>
                         <td className="col-ping" data-label="Пинг">
                           <span className={`ping ping--${latencyTone(proxy.latency)}`}>
@@ -387,11 +550,29 @@ function ProxiesPage() {
                             </a>
                             <button
                               type="button"
+                              className={`icon-btn icon-btn--refresh${
+                                rowAction === 'refresh' ? ' is-loading' : ''
+                              }`}
+                              onClick={() => void handleRefreshProxy(proxy)}
+                              disabled={isBusy || isRowBusy}
+                              title="Перепроверить прокси"
+                              aria-label={`Перепроверить прокси #${proxy.id}`}
+                            >
+                              <span className="icon-btn__glyph" aria-hidden="true">
+                                ⟳
+                              </span>
+                            </button>
+                            <button
+                              type="button"
                               className="icon-btn"
                               onClick={() => void handleCopy(proxy)}
+                              disabled={isRowBusy}
                               title="Скопировать ссылку"
+                              aria-label={`Скопировать ссылку прокси #${proxy.id}`}
                             >
-                              {copiedId === proxy.id ? '✓' : '⧉'}
+                              <span className="icon-btn__glyph" aria-hidden="true">
+                                {copiedId === proxy.id ? '✓' : '⧉'}
+                              </span>
                             </button>
                           </div>
                         </td>
