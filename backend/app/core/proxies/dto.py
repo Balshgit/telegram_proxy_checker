@@ -20,6 +20,7 @@ class ProxyFilterDTO:
 @dataclass(slots=True, kw_only=True)
 class ProxyBaseDTO:
     url: URL
+    name: str
     latency: int | None = None
     status: ProxyStatusEnum
 

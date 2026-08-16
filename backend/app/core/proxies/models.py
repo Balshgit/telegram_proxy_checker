@@ -16,6 +16,7 @@ class TelegramProxy(DBBase):
     __table_args__ = ({"schema": get_public_shema()},)
 
     id: Mapped[int] = mapped_column("id", Integer, primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column("name", String(200), comment="Proxy name")
     url: Mapped[URL] = mapped_column("url", String(4000), comment="Proxy address")
     created_at: Mapped[datetime] = mapped_column("created_at", DateTime, default=func.now())
     updated_at: Mapped[datetime | None] = mapped_column("updated_at", DateTime)

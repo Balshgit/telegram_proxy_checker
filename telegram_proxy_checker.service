@@ -1,0 +1,11 @@
+[Unit]
+Description=Telegram proxy checker
+Wants=network-online.target
+After=network-online.target
+[Service]
+Restart=always
+WorkingDirectory=/opt/telegram_proxy_checker
+ExecStart=make up-docker-app
+ExecStop=make down-docker-app
+[Install]
+WantedBy=multi-user.target

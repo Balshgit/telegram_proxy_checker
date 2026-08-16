@@ -9,6 +9,8 @@ export type ProxyStatus = 'enabled' | 'disabled'
 
 export interface TelegramProxy {
   id: number
+  /** Человекочитаемое имя прокси, приходит из GET /api/proxies. */
+  name: string
   url: string
   created_at: string
   updated_at: string | null
@@ -59,18 +61,47 @@ interface DataPayload<T> {
 
 const API_BASE = '/api'
 
+/**
+ * Машиночитаемые коды ошибок бекенда (`payload.error.type`).
+ * Именно по ним, а не по тексту, стоит развешивать особую обработку в UI.
+ */
+export const API_ERROR_CODES = {
+  /** POST /api/proxies: в источнике не оказалось ни одной новой прокси. */
+  noProxiesAdded: 'NoProxiesAddedError',
+} as const
+
+/**
+ * Человеческие тексты вместо технических английских title'ов с бекенда.
+ * Ключ — `error.type`.
+ */
+const ERROR_TEXT_BY_CODE: Record<string, string> = {
+  [API_ERROR_CODES.noProxiesAdded]: 'Нечего добавлять — новых прокси в источнике не нашлось',
+}
+
 export class ApiRequestError extends Error {
   readonly status: number
+  /** `error.type` из конверта — стабильный код ошибки, если бекенд его прислал. */
+  readonly code: string | null
 
-  constructor(message: string, status: number) {
+  constructor(message: string, status: number, code: string | null = null) {
     super(message)
     this.name = 'ApiRequestError'
     this.status = status
+    this.code = code
   }
+}
+
+function extractErrorCode(body: unknown): string | null {
+  return (body as Envelope<unknown> | null)?.error?.type ?? null
 }
 
 function extractErrorMessage(body: unknown, status: number): string {
   const error = (body as Envelope<unknown> | null)?.error
+  const known = error?.type ? ERROR_TEXT_BY_CODE[error.type] : undefined
+  if (known) {
+    return known
+  }
+
   const message = error?.meta?.message ?? error?.detail ?? error?.title
   if (message) {
     return message
@@ -102,7 +133,11 @@ async function request<TPayload>(path: string, init?: RequestInit): Promise<TPay
   }
 
   if (!response.ok) {
-    throw new ApiRequestError(extractErrorMessage(body, response.status), response.status)
+    throw new ApiRequestError(
+      extractErrorMessage(body, response.status),
+      response.status,
+      extractErrorCode(body),
+    )
   }
 
   if (body === null || typeof body !== 'object') {
@@ -139,7 +174,12 @@ export async function fetchProxies({
   }
 }
 
-/** POST /api/proxies — бекенд сам подтягивает и пингует прокси, тело не нужно. */
+/**
+ * POST /api/proxies — бекенд сам подтягивает и пингует прокси, тело не нужно.
+ *
+ * Если в источнике не оказалось ни одной новой прокси, бекенд отвечает 400
+ * с `error.type === 'NoProxiesAddedError'` — это не поломка, а штатный исход.
+ */
 export async function createProxies(): Promise<TelegramProxy[]> {
   const payload = await request<DataPayload<TelegramProxy[]>>('/proxies', { method: 'POST' })
   return payload?.data ?? []

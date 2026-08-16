@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import {
+  API_ERROR_CODES,
   ApiRequestError,
   createProxies,
   deleteAllProxies,
@@ -21,9 +22,27 @@ type RowAction = 'refresh' | 'status'
 
 interface Toast {
   id: number
-  kind: 'success' | 'error'
+  kind: 'success' | 'error' | 'info'
   text: string
+  /** Необязательная вторая строка — поясняет, что делать дальше. */
+  hint?: string
 }
+
+const TOAST_ICONS: Record<Toast['kind'], string> = {
+  success: '✓',
+  error: '⚠',
+  info: 'ℹ',
+}
+
+/**
+ * Штатный ответ бекенда «нечего добавлять»: в источнике не нашлось ни одной
+ * прокси, которой ещё нет в базе. Это не ошибка, поэтому показываем спокойный
+ * info-тост, а не красный «что-то сломалось».
+ */
+const NOTHING_TO_ADD_TOAST = {
+  text: 'Новых прокси не нашлось',
+  hint: 'Источник не отдал ничего, чего ещё нет в списке. Загляните позже — список пополняется.',
+} as const
 
 const STATUS_LABELS: Record<ProxyStatus, string> = {
   enabled: 'Активен',
@@ -37,19 +56,6 @@ const STATUS_FILTERS: { value: StatusFilter; label: string }[] = [
   { value: 'enabled', label: 'Активные' },
   { value: 'disabled', label: 'Неактивные' },
 ]
-
-function parseProxyUrl(url: string): { server: string | null; port: string | null; secret: string | null } {
-  const queryIndex = url.indexOf('?')
-  if (queryIndex === -1) {
-    return { server: null, port: null, secret: null }
-  }
-  const params = new URLSearchParams(url.slice(queryIndex + 1))
-  return {
-    server: params.get('server'),
-    port: params.get('port'),
-    secret: params.get('secret'),
-  }
-}
 
 function formatDate(value: string | null): string {
   if (!value) {
@@ -85,6 +91,11 @@ function truncate(value: string, max: number): string {
   return value.length > max ? `${value.slice(0, max)}…` : value
 }
 
+/** Как называть прокси в тостах и подписях: по имени, а если его нет — по id. */
+function proxyLabel(proxy: TelegramProxy): string {
+  return proxy.name ? `«${truncate(proxy.name, 32)}»` : `#${proxy.id}`
+}
+
 function ProxiesPage() {
   const [proxies, setProxies] = useState<TelegramProxy[]>([])
   const [total, setTotal] = useState(0)
@@ -105,13 +116,17 @@ function ProxiesPage() {
 
   const toastSeq = useRef(0)
 
-  const pushToast = useCallback((kind: Toast['kind'], text: string) => {
+  const pushToast = useCallback((kind: Toast['kind'], text: string, hint?: string) => {
     toastSeq.current += 1
     const id = toastSeq.current
-    setToasts((current) => [...current, { id, kind, text }])
-    window.setTimeout(() => {
-      setToasts((current) => current.filter((toast) => toast.id !== id))
-    }, 4000)
+    setToasts((current) => [...current, { id, kind, text, hint }])
+    window.setTimeout(
+      () => {
+        setToasts((current) => current.filter((toast) => toast.id !== id))
+      },
+      // Подсказку нужно успеть прочитать — держим такой тост чуть дольше.
+      hint ? 6000 : 4000,
+    )
   }, [])
 
   const loadProxies = useCallback(
@@ -157,10 +172,23 @@ function ProxiesPage() {
     setPendingAction('create')
     try {
       const created = await createProxies()
+
+      // Бекенд может ответить 200 с пустым списком — это тот же «нечего добавлять».
+      if (created.length === 0) {
+        pushToast('info', NOTHING_TO_ADD_TOAST.text, NOTHING_TO_ADD_TOAST.hint)
+        return
+      }
+
       pushToast('success', `Добавлено проксей: ${created.length}`)
       setOffset(0)
       await loadProxies()
     } catch (error) {
+      // 400 NoProxiesAddedError — штатный исход, не показываем его как поломку.
+      if (error instanceof ApiRequestError && error.code === API_ERROR_CODES.noProxiesAdded) {
+        pushToast('info', NOTHING_TO_ADD_TOAST.text, NOTHING_TO_ADD_TOAST.hint)
+        return
+      }
+
       pushToast('error', error instanceof ApiRequestError ? error.message : 'Не удалось добавить прокси')
     } finally {
       setPendingAction(null)
@@ -228,7 +256,7 @@ function ProxiesPage() {
         }
 
         if (statusFilter !== 'all' && updated.status !== statusFilter) {
-          pushToast('success', `Прокси #${proxy.id}: статус — ${STATUS_LABELS[updated.status]}`)
+          pushToast('success', `Прокси ${proxyLabel(updated)}: статус — ${STATUS_LABELS[updated.status]}`)
           await loadProxies()
           return
         }
@@ -245,13 +273,15 @@ function ProxiesPage() {
         pushToast(
           'success',
           action === 'refresh'
-            ? `Прокси #${proxy.id} проверена: ${updated.latency == null ? 'нет ответа' : `${updated.latency} мс`}`
-            : `Прокси #${proxy.id}: статус — ${STATUS_LABELS[updated.status]}`,
+            ? `Прокси ${proxyLabel(updated)} проверена: ${
+                updated.latency == null ? 'нет ответа' : `${updated.latency} мс`
+              }`
+            : `Прокси ${proxyLabel(updated)}: статус — ${STATUS_LABELS[updated.status]}`,
         )
       } catch (error) {
         pushToast(
           'error',
-          error instanceof ApiRequestError ? error.message : `Не удалось обновить прокси #${proxy.id}`,
+          error instanceof ApiRequestError ? error.message : `Не удалось обновить прокси ${proxyLabel(proxy)}`,
         )
       } finally {
         setRowPending((current) => {
@@ -478,7 +508,6 @@ function ProxiesPage() {
                 </thead>
                 <tbody>
                   {proxies.map((proxy) => {
-                    const { server, port, secret } = parseProxyUrl(proxy.url)
                     const rowAction = rowPending[proxy.id]
                     const isRowBusy = rowAction !== undefined
                     return (
@@ -488,12 +517,12 @@ function ProxiesPage() {
                         </td>
                         <td className="col-proxy" data-label="Прокси">
                           <div className="proxy-cell">
-                            <span className="proxy-cell__host mono" title={proxy.url}>
-                              {server ? `${server}${port ? `:${port}` : ''}` : truncate(proxy.url, 48)}
+                            <span
+                              className={`proxy-cell__name${proxy.name ? '' : ' proxy-cell__name--empty'}`}
+                              title={proxy.name || undefined}
+                            >
+                              {proxy.name ? truncate(proxy.name, 48) : 'Без имени'}
                             </span>
-                            {secret && (
-                              <span className="proxy-cell__secret mono">secret: {truncate(secret, 28)}</span>
-                            )}
                           </div>
                         </td>
                         <td className="col-status" data-label="Статус">
@@ -634,9 +663,14 @@ function ProxiesPage() {
 
       <div className="toasts">
         {toasts.map((toast) => (
-          <div key={toast.id} className={`toast toast--${toast.kind}`}>
-            <span>{toast.kind === 'success' ? '✓' : '⚠'}</span>
-            {toast.text}
+          <div key={toast.id} className={`toast toast--${toast.kind}`} role="status">
+            <span className="toast__icon" aria-hidden="true">
+              {TOAST_ICONS[toast.kind]}
+            </span>
+            <div className="toast__body">
+              <span className="toast__text">{toast.text}</span>
+              {toast.hint && <span className="toast__hint">{toast.hint}</span>}
+            </div>
           </div>
         ))}
       </div>
