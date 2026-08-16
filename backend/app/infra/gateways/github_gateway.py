@@ -55,6 +55,8 @@ class GithubGateway:
         return ProxyBaseDTO(name=proxy_name, url=proxy_url, latency=latency, status=ProxyStatusEnum.enabled)
 
     async def get_host_latency_for_urls(self, urls: list[URL]) -> list[ProxyBaseDTO]:
+        if not urls:
+            return []
         tasks = [self.get_host_latency(url) for url in urls]
         proxies_dtos = await run_async(*tasks)
         return list(proxies_dtos)
