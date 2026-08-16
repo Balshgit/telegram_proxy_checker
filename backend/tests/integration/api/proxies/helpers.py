@@ -7,15 +7,19 @@ from httpx import URL, Response
 from respx import MockRouter
 
 from app.api.constants import PLAIN_TEXT_MEDIA_TYPE
+from app.core.proxies import services as proxy_services
 from app.core.proxies.constants import ProxyStatusEnum
 from app.core.proxies.dto import ProxyBaseDTO
 from app.infra.gateways.github_gateway import GithubGateway
+from app.infra.taskiq.executor import TaskiqTasksExecutor
 
 GITHUB_PROXIES_ROUTE_NAME = "github_get_proxies"
 
 PROXY_URL_BASE = "https://proxy.example.com"
 PROXY_SECRET = "ee1337"
 MISSING_PROXY_ID = 999_999
+
+CHUNK_SIZE_FOR_TESTS = 5
 
 
 def build_proxy_url(server: str, port: int = 443, secret: str = PROXY_SECRET) -> str:
@@ -82,6 +86,34 @@ async def mocked_get_host_latency_for_urls(
     mock = AsyncMock(side_effect=_fake_get_host_latency_for_urls)
 
     with patch.object(GithubGateway, GithubGateway.get_host_latency_for_urls.__name__, mock):
+        yield mock
+
+
+@asynccontextmanager
+async def mocked_save_postgres_chunk_size(chunk_size: int = CHUNK_SIZE_FOR_TESTS) -> AsyncGenerator[int]:
+    """
+    Уменьшает размер чанка, с которым работает `ProxyService`.
+
+    Боевое значение — 200: чтобы дойти до ветки с отправкой "хвоста" в taskiq, тесту пришлось бы
+    создавать 201 запись. `ProxyService` импортирует константу напрямую (`from ... import ...`),
+    поэтому подменяем её в неймспейсе модуля сервиса, а не в `app.core.proxies.constants`.
+    """
+    with patch.object(proxy_services, "SAVE_POSTGRES_CHUNK_SIZE", chunk_size):
+        yield chunk_size
+
+
+@asynccontextmanager
+async def mocked_taskiq_run() -> AsyncGenerator[AsyncMock]:
+    """
+    Мокает `TaskiqTasksExecutor.run`, чтобы не ходить в реальный брокер.
+
+    Патч ставится на класс, поэтому `self` в мок не прилетает: обращение к `instance.run`
+    отдаёт AsyncMock как есть. Ожидаемый вызов — `mock.await_args.args[0]` (таска)
+    и `mock.await_args.kwargs["params"]`.
+    """
+    mock = AsyncMock(return_value=None)
+
+    with patch.object(TaskiqTasksExecutor, TaskiqTasksExecutor.run.__name__, mock):
         yield mock
 
 

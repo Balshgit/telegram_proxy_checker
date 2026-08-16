@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 
 from sqlakeyset import Page
-from sqlalchemy import delete, func, select, update, values
+from sqlalchemy import Integer, cast, delete, func, select, update, values
 from sqlalchemy.exc import NoResultFound
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -133,7 +133,11 @@ class ProxyRepository(BaseDBRepository):
         query = (
             update(TelegramProxy)
             .where(TelegramProxy.name == new_values.c.name)
-            .values(latency=new_values.c.latency, status=new_values.c.status, updated_at=func.now())
+            .values(
+                latency=cast(new_values.c.latency, Integer),
+                status=new_values.c.status,
+                updated_at=func.now(),
+            )
             .returning(TelegramProxy)
             .execution_options(synchronize_session=False)
         )

@@ -9,12 +9,19 @@ from starlette import status
 
 from app.core.proxies.constants import ProxyStatusEnum
 from app.core.proxies.models import TelegramProxy
+from app.core.proxies.tasks import save_proxies_to_database_task
 from tests.integration.api.proxies.helpers import (
+    CHUNK_SIZE_FOR_TESTS,
     GITHUB_PROXIES_ROUTE_NAME,
+    build_proxy_url,
     mocked_get_host_latency_for_urls,
     mocked_github_get_proxies,
+    mocked_save_postgres_chunk_size,
+    mocked_taskiq_run,
 )
 from tests.support.factories.proxies import TelegramProxyFactory
+
+PROXIES_OVER_CHUNK_SIZE = 2
 
 
 async def test_save_new_proxies_success(
@@ -113,3 +120,51 @@ async def test_save_proxies_skips_urls_without_server_and_port(
     proxies_in_db = (await db_rollback_session.execute(select(TelegramProxy))).scalars().all()
 
     assert proxies_in_db == []
+
+
+async def test_save_proxies_sends_urls_over_chunk_size_to_taskiq(
+    rest_client: AsyncClient,
+    db_rollback_session: AsyncSession,
+) -> None:
+    total_proxies = CHUNK_SIZE_FOR_TESTS + PROXIES_OVER_CHUNK_SIZE
+    all_urls = [build_proxy_url(server=f"10.0.0.{number}") for number in range(total_proxies)]
+    raw_proxies = "\n".join(all_urls)
+
+    async with (
+        mocked_save_postgres_chunk_size(),
+        mocked_github_get_proxies(raw_proxies) as mocked_github,
+        mocked_get_host_latency_for_urls(default_latency=55) as mocked_latency,
+        mocked_taskiq_run() as mocked_taskiq,
+    ):
+        response = await rest_client.post("/api/proxies")
+
+        assert mocked_github.routes[GITHUB_PROXIES_ROUTE_NAME].call_count == 1
+
+    assert response.status_code == status.HTTP_200_OK, response.text
+
+    mocked_latency.assert_awaited_once()
+    assert len(mocked_latency.await_args.kwargs["urls"]) == CHUNK_SIZE_FOR_TESTS
+
+    mocked_taskiq.assert_awaited_once()
+    assert mocked_taskiq.await_args.args[0] is save_proxies_to_database_task
+
+    deferred_urls = mocked_taskiq.await_args.kwargs["params"]["urls"]
+    assert len(deferred_urls) == PROXIES_OVER_CHUNK_SIZE
+
+    data = response.json()["payload"]["data"]
+    assert len(data) == CHUNK_SIZE_FOR_TESTS
+
+    proxies_in_db = (await db_rollback_session.execute(select(TelegramProxy))).scalars().all()
+
+    assert len(proxies_in_db) == CHUNK_SIZE_FOR_TESTS
+
+    # Сервис берёт урлы из set().difference(), порядок недетерминированный:
+    # проверяем, что сохранённые и отложенные урлы не пересекаются и вместе дают исходный список.
+    saved_urls = {proxy.url for proxy in proxies_in_db}
+
+    assert saved_urls.isdisjoint(deferred_urls)
+    assert saved_urls | set(deferred_urls) == set(all_urls)
+
+    for proxy in proxies_in_db:
+        assert proxy.latency == 55
+        assert proxy.status == ProxyStatusEnum.enabled
