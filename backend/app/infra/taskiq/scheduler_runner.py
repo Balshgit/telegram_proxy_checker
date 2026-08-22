@@ -1,6 +1,6 @@
 import asyncio
 import contextlib
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 
 from loguru import logger
 from taskiq import TaskiqScheduler
@@ -42,6 +42,9 @@ class TaskiqSchedulerRunner:
             await source.startup()
 
         scheduler_loop = SchedulerLoop(self._scheduler)
+
+        await self._skip_first_interval_run(scheduler_loop)
+
         self._loop_task = asyncio.create_task(
             scheduler_loop.run(
                 update_interval=self._update_interval,
@@ -56,6 +59,17 @@ class TaskiqSchedulerRunner:
             if scheduled_labels := task.labels["schedule"]:
                 scheduled_tasks.append({task_name: scheduled_labels})
         logger.info("taskiq scheduler started", scheduled_tasks=scheduled_tasks)
+
+    async def _skip_first_interval_run(self, scheduler_loop: SchedulerLoop) -> None:
+        """
+        Откладывает первый запуск интервальных задач на один интервал.
+        """
+
+        now = datetime.now(tz=UTC)
+        for source in self._scheduler.sources:
+            for task in await source.get_schedules():
+                if task.interval is not None:
+                    scheduler_loop.interval_tasks_last_run[task.schedule_id] = now
 
     async def stop(self) -> None:
         if self._loop_task is None:

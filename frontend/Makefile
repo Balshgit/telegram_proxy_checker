@@ -9,7 +9,7 @@ RESET  := $(shell tput -Txterm sgr0)
 
 ## Запустить приложение на 3000 порту.
 app:
-	npm run dev
+	npm run dev -- --port 8083
 
 ## Собрать приложение.
 build:

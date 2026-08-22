@@ -1,4 +1,5 @@
 from collections.abc import AsyncGenerator
+from datetime import timedelta
 
 import pytest
 from taskiq import AsyncBroker, TaskiqScheduler
@@ -8,6 +9,7 @@ from app.infra.taskiq.scheduler_runner import TaskiqSchedulerRunner
 from settings.config import AppTestSettings
 from tests.support.helpers import override_settings
 from tests.unit.infra.helpers import (
+    CONTROL_TASK_NAME,
     SCHEDULED_TASK_NAME,
     SCHEDULER_LOOP_INTERVAL_FOR_TESTS,
     SCHEDULES_UPDATE_INTERVAL_FOR_TESTS,
@@ -18,6 +20,12 @@ from tests.unit.infra.helpers import (
 @pytest.fixture
 def executions() -> list[None]:
     return []
+
+
+@pytest.fixture
+def task_interval() -> timedelta:
+    """Интервал тестовой таски. Тест может подменить его через `parametrize`."""
+    return TASK_INTERVAL
 
 
 @pytest.fixture
@@ -44,7 +52,11 @@ async def taskiq_container(
 
 
 @pytest.fixture
-async def broker(taskiq_container: Container, executions: list[None]) -> AsyncGenerator[AsyncBroker]:
+async def broker(
+    taskiq_container: Container,
+    executions: list[None],
+    task_interval: timedelta,
+) -> AsyncGenerator[AsyncBroker]:
     broker = taskiq_container.infra.taskiq_broker()
 
     async def scheduled_task() -> None:
@@ -57,12 +69,40 @@ async def broker(taskiq_container: Container, executions: list[None]) -> AsyncGe
     broker.register_task(
         func=scheduled_task,
         task_name=SCHEDULED_TASK_NAME,
-        schedule=[{"kwargs": {}, "interval": TASK_INTERVAL}],
+        schedule=[{"kwargs": {}, "interval": task_interval}],
     )
 
     await broker.startup()
     yield broker
     await broker.shutdown()
+
+
+@pytest.fixture
+def control_executions() -> list[None]:
+    return []
+
+
+@pytest.fixture
+def control_task(broker: AsyncBroker, control_executions: list[None]) -> None:
+    """
+    Таска-маячок с минимальным интервалом.
+
+    Её срабатывание — надёжный признак того, что цикл планировщика сделал тик и успел
+    оценить все расписания. Негативным тестам это позволяет не спать «с запасом»:
+    дождались маячка — значит незапрошенный первый запуск уже был бы виден.
+
+    Регистрируется после фикстуры `broker`, но до `runner.start()`, который заново
+    поднимает источник расписаний и подхватывает таску.
+    """
+
+    async def control_task() -> None:
+        control_executions.append(None)
+
+    broker.register_task(
+        func=control_task,
+        task_name=CONTROL_TASK_NAME,
+        schedule=[{"kwargs": {}, "interval": TASK_INTERVAL}],
+    )
 
 
 @pytest.fixture

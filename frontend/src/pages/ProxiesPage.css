@@ -182,6 +182,13 @@
   background: var(--glass-bg);
   border: 1px solid var(--glass-border);
   backdrop-filter: blur(12px);
+  /*
+   * backdrop-filter создаёт стековый контекст, поэтому попап меню «⋯» не может
+   * вылезти за пределы тулбара своим z-index. Поднимаем весь тулбар выше панели
+   * с таблицей — иначе липкая шапка таблицы перекрывает выпадающее меню.
+   */
+  position: relative;
+  z-index: 20;
 }
 
 /*
@@ -364,18 +371,6 @@
   font-size: 16px;
 }
 
-/* Перезагрузка списка в тулбаре — иконка вместо кнопки с текстом, экономит ряд */
-.icon-btn--reload {
-  width: 34px;
-  height: 34px;
-  font-size: 16px;
-  border-radius: 10px;
-}
-
-.icon-btn--reload.is-loading .icon-btn__glyph {
-  animation: spin 0.8s linear infinite;
-}
-
 .icon-btn--refresh:not(:disabled):hover {
   color: #4ade80;
   border-color: rgba(74, 222, 128, 0.45);
@@ -552,6 +547,14 @@
 
 .page-size select:focus-visible {
   outline: 2px solid rgba(var(--azure-rgb), 0.6);
+}
+
+/*
+ * Сортировка списком нужна только там, где скрыта шапка таблицы (см. @media 900px).
+ * На десктопе сортируют кликом по заголовку колонки, дубль был бы лишним.
+ */
+.sort-select {
+  display: none;
 }
 
 /* ── Panel & table ──────────────────────────────────────── */
@@ -1298,20 +1301,36 @@
     letter-spacing: 0.04em;
   }
 
-  /* Тулбар */
+  /*
+   * Тулбар раскладывается в сетку, а обе группы становятся `display: contents` —
+   * так их содержимое можно расставить по строкам независимо от разметки.
+   * Строка 1: «Добавить», «Обновить» и «⋯»; дальше — фильтры, каждый на своей строке.
+   */
   .proxies-toolbar {
-    flex-direction: column;
-    align-items: stretch;
-    gap: 12px;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 12px 8px;
     padding: 12px;
     border-radius: 14px;
   }
 
-  /* Три равные кнопки в один ряд */
-  .proxies-toolbar__actions {
-    display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 8px;
+  .proxies-toolbar__actions,
+  .proxies-toolbar__filters {
+    display: contents;
+  }
+
+  .proxies-toolbar__actions .btn:nth-child(1) {
+    grid-area: 1 / 1;
+  }
+
+  .proxies-toolbar__actions .btn:nth-child(2) {
+    grid-area: 1 / 2;
+  }
+
+  /* «⋯» — в одном ряду с основными действиями, крайней колонкой по ширине иконки */
+  .proxies-toolbar .more-menu {
+    grid-area: 1 / 3;
   }
 
   .proxies-toolbar .btn {
@@ -1321,14 +1340,8 @@
     gap: 6px;
   }
 
-  .proxies-toolbar__filters {
-    justify-content: space-between;
-    gap: 8px;
-    flex-wrap: wrap;
-  }
-
   .segmented {
-    flex: 1 1 100%;
+    grid-column: 1 / -1;
     justify-content: space-between;
     overflow-x: auto;
     scrollbar-width: none;
@@ -1350,21 +1363,26 @@
   }
 
   .page-size {
-    flex: 1;
+    grid-column: 1 / -1;
     gap: 8px;
   }
 
   .page-size select {
     flex: 1;
-    max-width: 220px;
+    max-width: none;
     padding: 10px;
     /* 16px, чтобы iOS не зумил страницу при открытии списка */
     font-size: 16px;
   }
 
-  /* Кнопки перезагрузки и «⋯» — полноценные тап-таргеты */
-  .proxies-toolbar__filters .icon-btn--reload,
-  .proxies-toolbar__filters .icon-btn--more {
+  /* Шапка таблицы скрыта — сортировку отдаём выпадающим списком на всю строку */
+  .sort-select {
+    display: inline-flex;
+    grid-column: 1 / -1;
+  }
+
+  /* Кнопка «⋯» — полноценный тап-таргет */
+  .proxies-toolbar .icon-btn--more {
     width: 42px;
     height: 42px;
     font-size: 18px;
@@ -1627,8 +1645,8 @@
 }
 
 /*
- * Телефоны: полные подписи («Удалить все прокси») уже не помещаются в треть ряда —
- * оставляем короткие, кнопки при этом остаются в одну строку.
+ * Телефоны: полные подписи («Добавить прокси») уже не помещаются в половину ряда —
+ * оставляем короткие, кнопки при этом остаются в одну строку с «⋯».
  */
 @media (max-width: 600px) {
   .btn__text-extra {
@@ -1643,8 +1661,8 @@
 
 /* Узкие экраны — кнопки остаются в одном ряду, ужимаются подписи */
 @media (max-width: 400px) {
-  .proxies-toolbar__actions {
-    gap: 6px;
+  .proxies-toolbar {
+    column-gap: 6px;
   }
 
   .proxies-toolbar .btn {

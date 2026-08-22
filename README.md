@@ -1,6 +1,6 @@
 # Proxy telegram checker
 
-![img.png](img.png)
+![interface.png](interface.png)
 
 
 ## Usefull commands:
