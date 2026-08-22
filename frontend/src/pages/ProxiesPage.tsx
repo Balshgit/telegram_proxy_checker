@@ -544,19 +544,6 @@ function ProxiesPage() {
               </select>
             </label>
 
-            <button
-              type="button"
-              className={`icon-btn icon-btn--reload${isLoading ? ' is-loading' : ''}`}
-              onClick={() => void loadProxies()}
-              disabled={isBusy || isLoading}
-              title="Перезагрузить список"
-              aria-label="Перезагрузить список"
-            >
-              <span className="icon-btn__glyph" aria-hidden="true">
-                ↻
-              </span>
-            </button>
-
             {/*
               Опасное «удалить всё» намеренно спрятано в неприметное меню «⋯»,
               чтобы его нельзя было нажать мимоходом рядом с обычными действиями.

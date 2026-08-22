@@ -6,6 +6,6 @@ After=network-online.target
 Restart=always
 WorkingDirectory=/opt/telegram_proxy_checker
 ExecStart=bash -c "docker compose -f /opt/telegram_proxy_checker/docker-compose.yml --profile 'app' up"
-ExecStop=bash -c "docker compose -f /opt/telegram_proxy_checker/docker-compose.yml down -v"
+ExecStop=bash -c "docker compose -f /opt/telegram_proxy_checker/docker-compose.yml down"
 [Install]
 WantedBy=multi-user.target

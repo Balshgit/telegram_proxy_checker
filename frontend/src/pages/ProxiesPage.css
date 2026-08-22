@@ -182,6 +182,13 @@
   background: var(--glass-bg);
   border: 1px solid var(--glass-border);
   backdrop-filter: blur(12px);
+  /*
+   * backdrop-filter создаёт стековый контекст, поэтому попап меню «⋯» не может
+   * вылезти за пределы тулбара своим z-index. Поднимаем весь тулбар выше панели
+   * с таблицей — иначе липкая шапка таблицы перекрывает выпадающее меню.
+   */
+  position: relative;
+  z-index: 20;
 }
 
 /*
@@ -362,18 +369,6 @@
 
 .icon-btn--refresh {
   font-size: 16px;
-}
-
-/* Перезагрузка списка в тулбаре — иконка вместо кнопки с текстом, экономит ряд */
-.icon-btn--reload {
-  width: 34px;
-  height: 34px;
-  font-size: 16px;
-  border-radius: 10px;
-}
-
-.icon-btn--reload.is-loading .icon-btn__glyph {
-  animation: spin 0.8s linear infinite;
 }
 
 .icon-btn--refresh:not(:disabled):hover {
@@ -1362,8 +1357,7 @@
     font-size: 16px;
   }
 
-  /* Кнопки перезагрузки и «⋯» — полноценные тап-таргеты */
-  .proxies-toolbar__filters .icon-btn--reload,
+  /* Кнопка «⋯» — полноценный тап-таргет */
   .proxies-toolbar__filters .icon-btn--more {
     width: 42px;
     height: 42px;
