@@ -1,6 +1,12 @@
 from datetime import timedelta
 
 SCHEDULED_TASK_NAME = "test_interval_task"
+CONTROL_TASK_NAME = "test_control_interval_task"
+
+# Секунда — минимум, ниже которого taskiq не работает, а не осторожно выбранное значение:
+# `is_interval_task_now` сравнивает `round(seconds_passed) >= round(interval_seconds)`,
+# а `SchedulerLoop.run` выравнивает тики по секундам (`next_run.replace(microsecond=0)`)
+# и при более коротком `loop_interval` уходит в busy loop с отрицательной задержкой.
 TASK_INTERVAL = timedelta(seconds=1)
 CRON_TASK_INTERVAL = timedelta(hours=4)
 

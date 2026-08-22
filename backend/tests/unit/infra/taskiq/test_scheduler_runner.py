@@ -21,14 +21,17 @@ from tests.unit.infra.helpers import (
     UNREACHABLE_TASK_INTERVAL,
 )
 
-# Планировщик перед первым тиком досыпает до начала следующей секунды, первый запуск отложен
-# на интервал, поэтому запас на два срабатывания интервальной задачи — 1s + 1s + 1s + 1s.
+# Потолок ожидания, а не длительность теста: `_wait_for` выходит сразу по предикату, поэтому
+# сквозные тесты укладываются в ~1.5s и ~2.5s. Уменьшать таймаут смысла нет — он ничего не ускоряет.
+#
+# Ниже секунды интервалы опустить нельзя, это ограничение самого taskiq:
+#   * `_sleep_until_next_second()` безусловно съедает до 1s перед первым тиком;
+#   * `next_run = (now + loop_interval).replace(microsecond=0)` при `loop_interval < 1s`
+#     уезжает в прошлое, и цикл начинает крутиться вхолостую;
+#   * `is_interval_task_now` сравнивает `round(...)` секунд, а `round(0.5) == 0`.
+# Запас — на досып до начала секунды (<1s) плюс два интервала и краевое округление.
 EXECUTIONS_WAIT_TIMEOUT = 6.0
 POLL_STEP = 0.05
-
-# Досып до начала секунды (<1s) плюс два полноценных тика цикла: если бы первый запуск не был
-# отложен, таска успела бы уйти на выполнение задолго до конца этого окна.
-FIRST_TICKS_WAIT = 2.5
 
 EXPECTED_REPEATED_EXECUTIONS = 2
 
@@ -112,28 +115,28 @@ async def test_scheduler_can_be_restarted(runner: TaskiqSchedulerRunner) -> None
     assert not runner._loop_task.done()
 
 
-async def test_scheduled_task_runs_after_first_interval(
-    runner: TaskiqSchedulerRunner,
-    executions: list[None],
-) -> None:
-    await runner.start()
-
-    assert await _wait_for(lambda: len(executions) >= 1)
-
-
 async def test_scheduled_task_runs_repeatedly_by_interval(
     runner: TaskiqSchedulerRunner,
     executions: list[None],
 ) -> None:
+    """
+    Единственный сквозной тест на «планировщик реально доводит таску до выполнения».
+
+    Отдельная проверка первого срабатывания не нужна: два срабатывания её включают,
+    а каждый такой тест стоит лишнюю секунду реального времени. Семантика интервалов
+    разобрана без ожиданий в `TestRealCronTaskFirstRun`.
+    """
     await runner.start()
 
     assert await _wait_for(lambda: len(executions) >= EXPECTED_REPEATED_EXECUTIONS)
 
 
+@pytest.mark.usefixtures("control_task")
 @pytest.mark.parametrize("task_interval", [UNREACHABLE_TASK_INTERVAL])
 async def test_scheduled_task_does_not_run_on_start(
     runner: TaskiqSchedulerRunner,
     executions: list[None],
+    control_executions: list[None],
 ) -> None:
     """
     Главный регресс: интервальная (кроновая) задача не должна улетать на выполнение при старте.
@@ -144,23 +147,25 @@ async def test_scheduled_task_does_not_run_on_start(
     """
     await runner.start()
 
-    await asyncio.sleep(FIRST_TICKS_WAIT)
-
+    assert await _wait_for(lambda: len(control_executions) >= 1), "цикл планировщика не сделал ни одного тика"
     assert executions == []
 
 
+@pytest.mark.usefixtures("control_task")
 @pytest.mark.parametrize("task_interval", [UNREACHABLE_TASK_INTERVAL])
 async def test_restart_does_not_run_scheduled_task_on_start(
     runner: TaskiqSchedulerRunner,
     executions: list[None],
+    control_executions: list[None],
 ) -> None:
     """Перезапуск раннера создаёт новый `SchedulerLoop`, поэтому пометку нужно ставить заново."""
     await runner.start()
     await runner.stop()
+    control_executions.clear()
 
     await runner.start()
-    await asyncio.sleep(FIRST_TICKS_WAIT)
 
+    assert await _wait_for(lambda: len(control_executions) >= 1), "цикл планировщика не сделал ни одного тика"
     assert executions == []
 
 
@@ -248,6 +253,43 @@ class TestRealCronTaskFirstRun:
 
         assert scheduler_loop._is_schedule_ready_to_send(task=cron_schedule, now=now)
 
+    async def test_is_not_ready_to_send_again_until_next_interval(
+        self,
+        runner: TaskiqSchedulerRunner,
+        scheduler: TaskiqScheduler,
+    ) -> None:
+        """Отправка переставляет `last_run`, поэтому следующий тик задачу повторно не забирает."""
+        scheduler_loop = await self._build_primed_loop(runner=runner, scheduler=scheduler)
+        cron_schedule = self._find_cron_schedule(scheduler_loop)
+        first_run_at = datetime.now(tz=UTC) + CRON_TASK_INTERVAL
+
+        scheduler_loop._is_schedule_ready_to_send(task=cron_schedule, now=first_run_at)
+
+        assert not scheduler_loop._is_schedule_ready_to_send(
+            task=cron_schedule,
+            now=first_run_at + SCHEDULER_LOOP_INTERVAL_FOR_TESTS,
+        )
+
+    async def test_is_ready_to_send_on_every_next_interval(
+        self,
+        runner: TaskiqSchedulerRunner,
+        scheduler: TaskiqScheduler,
+    ) -> None:
+        """Быстрый аналог сквозного `test_scheduled_task_runs_repeatedly_by_interval`."""
+        scheduler_loop = await self._build_primed_loop(runner=runner, scheduler=scheduler)
+        cron_schedule = self._find_cron_schedule(scheduler_loop)
+        started_at = datetime.now(tz=UTC)
+
+        runs = [
+            scheduler_loop._is_schedule_ready_to_send(
+                task=cron_schedule,
+                now=started_at + CRON_TASK_INTERVAL * tick,
+            )
+            for tick in range(1, EXPECTED_REPEATED_EXECUTIONS + 1)
+        ]
+
+        assert all(runs)
+
 
 async def test_scheduled_task_stops_after_runner_is_stopped(
     runner: TaskiqSchedulerRunner,
@@ -259,6 +301,8 @@ async def test_scheduled_task_stops_after_runner_is_stopped(
     await runner.stop()
     executions_on_stop = len(executions)
 
-    await asyncio.sleep(TASK_INTERVAL.total_seconds() * 1.5)
+    # Ровно один интервал с небольшим запасом: этого достаточно, чтобы живой цикл успел
+    # сделать тик и отправить таску, а спать дольше — просто дарить секунду каждому прогону.
+    await asyncio.sleep(TASK_INTERVAL.total_seconds() + POLL_STEP * 2)
 
     assert len(executions) == executions_on_stop

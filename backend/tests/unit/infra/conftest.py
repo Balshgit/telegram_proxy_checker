@@ -9,6 +9,7 @@ from app.infra.taskiq.scheduler_runner import TaskiqSchedulerRunner
 from settings.config import AppTestSettings
 from tests.support.helpers import override_settings
 from tests.unit.infra.helpers import (
+    CONTROL_TASK_NAME,
     SCHEDULED_TASK_NAME,
     SCHEDULER_LOOP_INTERVAL_FOR_TESTS,
     SCHEDULES_UPDATE_INTERVAL_FOR_TESTS,
@@ -74,6 +75,34 @@ async def broker(
     await broker.startup()
     yield broker
     await broker.shutdown()
+
+
+@pytest.fixture
+def control_executions() -> list[None]:
+    return []
+
+
+@pytest.fixture
+def control_task(broker: AsyncBroker, control_executions: list[None]) -> None:
+    """
+    Таска-маячок с минимальным интервалом.
+
+    Её срабатывание — надёжный признак того, что цикл планировщика сделал тик и успел
+    оценить все расписания. Негативным тестам это позволяет не спать «с запасом»:
+    дождались маячка — значит незапрошенный первый запуск уже был бы виден.
+
+    Регистрируется после фикстуры `broker`, но до `runner.start()`, который заново
+    поднимает источник расписаний и подхватывает таску.
+    """
+
+    async def control_task() -> None:
+        control_executions.append(None)
+
+    broker.register_task(
+        func=control_task,
+        task_name=CONTROL_TASK_NAME,
+        schedule=[{"kwargs": {}, "interval": TASK_INTERVAL}],
+    )
 
 
 @pytest.fixture
