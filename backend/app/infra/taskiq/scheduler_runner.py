@@ -6,9 +6,6 @@ from loguru import logger
 from taskiq import TaskiqScheduler
 from taskiq.cli.scheduler.run import SchedulerLoop
 
-SCHEDULES_UPDATE_INTERVAL = timedelta(hours=1)
-SCHEDULER_LOOP_INTERVAL = timedelta(minutes=5)
-
 
 class TaskiqSchedulerRunner:
     """
@@ -19,14 +16,18 @@ class TaskiqSchedulerRunner:
 
     Жизненным циклом брокера управляет приложение, поэтому здесь
     поднимаются только источники расписаний и сам цикл планировщика.
+
+    Интервалы приходят из настроек (`TASKIQ_SCHEDULES_UPDATE_INTERVAL`, `TASKIQ_SCHEDULER_LOOP_INTERVAL`),
+    дефолтов тут специально нет: значения по умолчанию связывались бы на этапе определения функции,
+    и подменить их в тестах было бы нечем.
     """
 
     def __init__(
         self,
         scheduler: TaskiqScheduler,
         *,
-        update_interval: timedelta = SCHEDULES_UPDATE_INTERVAL,
-        loop_interval: timedelta = SCHEDULER_LOOP_INTERVAL,
+        update_interval: timedelta,
+        loop_interval: timedelta,
     ) -> None:
         self._scheduler = scheduler
         self._update_interval = update_interval

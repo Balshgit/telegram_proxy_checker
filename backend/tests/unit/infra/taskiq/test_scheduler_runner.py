@@ -1,25 +1,17 @@
 import asyncio
-from collections.abc import AsyncGenerator, Callable
+from collections.abc import Callable
 from datetime import timedelta
 
-import pytest
-from taskiq import InMemoryBroker, TaskiqScheduler
-from taskiq.schedule_sources import LabelScheduleSource
+from taskiq import TaskiqScheduler
 
-from app.infra.taskiq.scheduler_runner import (
-    SCHEDULER_LOOP_INTERVAL,
-    SCHEDULES_UPDATE_INTERVAL,
-    TaskiqSchedulerRunner,
+from app.infra.taskiq.scheduler_runner import TaskiqSchedulerRunner
+from settings.config import AppTestSettings
+from tests.unit.infra.helpers import (
+    SCHEDULED_TASK_NAME,
+    SCHEDULER_LOOP_INTERVAL_FOR_TESTS,
+    SCHEDULES_UPDATE_INTERVAL_FOR_TESTS,
+    TASK_INTERVAL,
 )
-
-SCHEDULED_TASK_NAME = "test_interval_task"
-TASK_INTERVAL = timedelta(seconds=1)
-
-# Боевые интервалы (SCHEDULES_UPDATE_INTERVAL = 1 час, SCHEDULER_LOOP_INTERVAL = 5 минут) в тестах
-# недостижимы: после первого тика цикл планировщика уходит спать на 5 минут, поэтому интервальная
-# задача успевает отработать ровно один раз. Подменяем интервалы на секундные.
-SCHEDULES_UPDATE_INTERVAL_FOR_TESTS = timedelta(seconds=1)
-SCHEDULER_LOOP_INTERVAL_FOR_TESTS = timedelta(seconds=1)
 
 # Планировщик перед первым тиком досыпает до начала следующей секунды,
 # поэтому запас на два срабатывания интервальной задачи — 1s + 1s + 1s.
@@ -27,51 +19,6 @@ EXECUTIONS_WAIT_TIMEOUT = 5.0
 POLL_STEP = 0.05
 
 EXPECTED_REPEATED_EXECUTIONS = 2
-
-
-@pytest.fixture
-def executions() -> list[None]:
-    return []
-
-
-@pytest.fixture
-async def broker(executions: list[None]) -> AsyncGenerator[InMemoryBroker]:
-    broker = InMemoryBroker()
-
-    async def scheduled_task() -> None:
-        executions.append(None)
-
-    broker.register_task(
-        func=scheduled_task,
-        task_name=SCHEDULED_TASK_NAME,
-        schedule=[{"kwargs": {}, "interval": TASK_INTERVAL}],
-    )
-
-    await broker.startup()
-    yield broker
-    await broker.shutdown()
-
-
-@pytest.fixture
-def scheduler(broker: InMemoryBroker) -> TaskiqScheduler:
-    return TaskiqScheduler(broker=broker, sources=[LabelScheduleSource(broker=broker)])
-
-
-@pytest.fixture
-async def runner(scheduler: TaskiqScheduler) -> AsyncGenerator[TaskiqSchedulerRunner]:
-    """
-    Раннер с укороченными интервалами.
-
-    Подменять константы модуля через patch бесполезно: они уже связаны как значения по умолчанию
-    в сигнатуре `TaskiqSchedulerRunner.__init__`, поэтому интервалы передаются явно.
-    """
-    runner = TaskiqSchedulerRunner(
-        scheduler=scheduler,
-        update_interval=SCHEDULES_UPDATE_INTERVAL_FOR_TESTS,
-        loop_interval=SCHEDULER_LOOP_INTERVAL_FOR_TESTS,
-    )
-    yield runner
-    await runner.stop()
 
 
 async def _wait_for(predicate: Callable[[], bool], timeout: float = EXECUTIONS_WAIT_TIMEOUT) -> bool:
@@ -85,17 +32,15 @@ async def _wait_for(predicate: Callable[[], bool], timeout: float = EXECUTIONS_W
     return predicate()
 
 
-def test_default_intervals_match_taskiq_cli_defaults() -> None:
-    assert timedelta(seconds=3600) == SCHEDULES_UPDATE_INTERVAL
-    assert timedelta(seconds=300) == SCHEDULER_LOOP_INTERVAL
+def test_default_intervals_match_taskiq_cli_defaults(test_settings: AppTestSettings) -> None:
+    assert timedelta(seconds=3600) == test_settings.TASKIQ_SCHEDULES_UPDATE_INTERVAL
+    assert timedelta(seconds=300) == test_settings.TASKIQ_SCHEDULER_LOOP_INTERVAL
 
 
-def test_runner_without_explicit_intervals_uses_defaults(scheduler: TaskiqScheduler) -> None:
-    """Фиксирует, что укороченные интервалы живут только в тестах, а боевой раннер берёт константы модуля."""
-    runner = TaskiqSchedulerRunner(scheduler=scheduler)
-
-    assert runner._update_interval == SCHEDULES_UPDATE_INTERVAL
-    assert runner._loop_interval == SCHEDULER_LOOP_INTERVAL
+def test_runner_takes_intervals_from_overridden_settings(runner: TaskiqSchedulerRunner) -> None:
+    """Фиксирует, что ужатые интервалы действительно доехали из настроек в раннер через контейнер."""
+    assert runner._update_interval == SCHEDULES_UPDATE_INTERVAL_FOR_TESTS
+    assert runner._loop_interval == SCHEDULER_LOOP_INTERVAL_FOR_TESTS
 
 
 async def test_start_launches_scheduler_loop(runner: TaskiqSchedulerRunner) -> None:

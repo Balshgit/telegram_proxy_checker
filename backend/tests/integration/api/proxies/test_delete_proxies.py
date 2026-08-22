@@ -77,6 +77,32 @@ async def test_delete_a_proxy(
     assert [proxy.id for proxy in proxies_after] == [proxy_to_keep_id]
 
 
+async def test_delete_a_proxy_is_idempotent(
+    rest_client: AsyncClient,
+    db_rollback_session: AsyncSession,
+    sqlalchemy_model_factory_maker: Callable[
+        [type[SQLAlchemyFactory], AsyncSession], Awaitable[type[SQLAlchemyFactory]]
+    ],
+) -> None:
+    """Повторное удаление той же прокси отвечает так же и не трогает остальные записи."""
+    proxy_factory = await sqlalchemy_model_factory_maker(factory_cls=TelegramProxyFactory, session=db_rollback_session)
+
+    proxy_to_delete = await proxy_factory.create_async(latency=42, status=ProxyStatusEnum.enabled)
+    proxy_to_keep = await proxy_factory.create_async(latency=543, status=ProxyStatusEnum.disabled)
+    proxy_to_delete_id, proxy_to_keep_id = proxy_to_delete.id, proxy_to_keep.id
+
+    first_response = await rest_client.delete(f"/api/proxies/{proxy_to_delete_id}")
+    second_response = await rest_client.delete(f"/api/proxies/{proxy_to_delete_id}")
+
+    assert first_response.status_code == status.HTTP_204_NO_CONTENT, first_response.text
+    assert second_response.status_code == first_response.status_code, second_response.text
+    assert second_response.content == first_response.content == b""
+
+    proxies_after = (await db_rollback_session.execute(select(TelegramProxy))).scalars().all()
+
+    assert [proxy.id for proxy in proxies_after] == [proxy_to_keep_id]
+
+
 async def test_delete_a_proxy_that_does_not_exist(
     rest_client: AsyncClient,
     db_rollback_session: AsyncSession,
