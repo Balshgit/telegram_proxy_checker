@@ -9,5 +9,5 @@ class GatewaysContainer(containers.DeclarativeContainer):
     adapters = providers.DependenciesContainer()
 
     github_gateway: providers.Singleton[GithubGateway] = providers.Singleton(
-        GithubGateway, http_adapter=adapters.github_http_adapter
+        GithubGateway, github_http_adapter=adapters.github_http_adapter
     )

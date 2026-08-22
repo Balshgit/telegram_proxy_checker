@@ -6,7 +6,12 @@ from sqlakeyset import Page
 
 from app.core.concurrency import run_async
 from app.core.pagination import OffsetPagination
-from app.core.proxies.constants import SAVE_POSTGRES_CHUNK_SIZE, ProxyOrderByEnum, ProxyStatusEnum
+from app.core.proxies.constants import (
+    SAVE_POSTGRES_CHUNK_SIZE,
+    ProxyOrderByEnum,
+    ProxySourceStatusEnum,
+    ProxyStatusEnum,
+)
 from app.core.proxies.dto import ProxyCountersDTO, ProxyFilterDTO
 from app.core.proxies.exceptions import NoProxiesAddedException
 from app.core.proxies.models import TelegramProxy
@@ -35,10 +40,11 @@ class ProxyService:
         return "\n".join(url for url in urls)
 
     async def add_new_proxies(self) -> list[TelegramProxy]:
-        proxy_sources = await self.repository.get_all_proxies_sources()
+        proxy_sources = await self.repository.get_all_proxies_sources(status=ProxySourceStatusEnum.enabled)
 
         coros = [self.github_gateway.get_urls_for_ping(proxy_source=str(source.url)) for source in proxy_sources]
-        new_proxies_urls = chain(await run_async(*coros))
+
+        new_proxies_urls = chain.from_iterable(await run_async(*coros)) if coros else []
 
         existing_proxies = await self.repository.get_all_proxies()
         existing_proxies_urls = {URL(proxy.url) for proxy in existing_proxies}
