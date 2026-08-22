@@ -5,9 +5,58 @@
  * покрыть unit-тестами без рендера всего компонента.
  */
 
-import type { ProxyStatus, TelegramProxy } from '../api/proxies'
+import type { ProxyOrderBy, ProxyStatus, TelegramProxy } from '../api/proxies'
 
 export const PAGE_SIZE_OPTIONS = [10, 25, 50, 100]
+
+/** Колонки таблицы, по которым бекенд умеет сортировать (GET /api/proxies, `order_by`). */
+export type SortField = 'latency' | 'created_at'
+export type SortDirection = 'asc' | 'desc'
+
+export interface SortState {
+  field: SortField
+  direction: SortDirection
+}
+
+/** Сортировка по умолчанию — то же, что бекенд подставляет сам: латенси по возрастанию. */
+export const DEFAULT_SORT: SortState = { field: 'latency', direction: 'asc' }
+
+/** Собирает значение `order_by` из состояния сортировки: `asc` — без суффикса, `desc` — с `_desc`. */
+export function toOrderBy({ field, direction }: SortState): ProxyOrderBy {
+  return (direction === 'desc' ? `${field}_desc` : field) as ProxyOrderBy
+}
+
+/**
+ * Клик по заголовку: та же колонка — переворачиваем направление,
+ * новая — начинаем с возрастания (быстрые/старые сверху).
+ */
+export function nextSortState(current: SortState, field: SortField): SortState {
+  if (current.field !== field) {
+    return { field, direction: 'asc' }
+  }
+  return { field, direction: current.direction === 'asc' ? 'desc' : 'asc' }
+}
+
+/** Стрелка в заголовке: у активной колонки — направление, у остальных — нейтральный знак. */
+export function sortGlyph(current: SortState, field: SortField): string {
+  if (current.field !== field) {
+    return '↕'
+  }
+  return current.direction === 'asc' ? '↑' : '↓'
+}
+
+/** Значение `aria-sort` для `<th>`. */
+export function ariaSortFor(current: SortState, field: SortField): 'ascending' | 'descending' | 'none' {
+  if (current.field !== field) {
+    return 'none'
+  }
+  return current.direction === 'asc' ? 'ascending' : 'descending'
+}
+
+export const SORT_FIELD_LABELS: Record<SortField, string> = {
+  latency: 'пингу',
+  created_at: 'дате создания',
+}
 
 /** Сколько соседних страниц показываем слева и справа от текущей. */
 export const PAGE_WINDOW = 2

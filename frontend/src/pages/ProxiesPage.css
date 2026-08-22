@@ -393,10 +393,102 @@
   animation: spin 0.8s linear infinite;
 }
 
+/* Удаление строки: нейтральная иконка, красный проступает только при наведении */
+.icon-btn--danger {
+  font-size: 14px;
+}
+
+.icon-btn--danger:not(:disabled):hover {
+  color: #ff6b6d;
+  border-color: rgba(255, 77, 79, 0.45);
+  background: rgba(255, 77, 79, 0.14);
+}
+
+.icon-btn--danger.is-loading {
+  opacity: 1;
+  color: var(--text-primary);
+  border-color: rgba(255, 77, 79, 0.45);
+  background: rgba(255, 77, 79, 0.14);
+}
+
 @media (prefers-reduced-motion: reduce) {
   .icon-btn--refresh.is-loading .icon-btn__glyph {
     animation-duration: 2s;
   }
+}
+
+/* ── Меню «⋯» ───────────────────────────────────────────── */
+
+/*
+ * Сюда прячутся редкие и опасные действия (удалить все прокси):
+ * кнопка выглядит как обычная иконка и не перетягивает внимание.
+ */
+.more-menu {
+  position: relative;
+  display: inline-flex;
+}
+
+.icon-btn--more {
+  width: 34px;
+  height: 34px;
+  font-size: 18px;
+  border-radius: 10px;
+  /* Приглушена сильнее соседей — это «прочее», а не основное действие */
+  opacity: 0.7;
+}
+
+.icon-btn--more:not(:disabled):hover,
+.icon-btn--more.is-open {
+  opacity: 1;
+}
+
+.more-menu__popup {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 30;
+  min-width: 208px;
+  padding: 6px;
+  border-radius: 12px;
+  border: 1px solid var(--glass-border);
+  background: rgba(14, 19, 33, 0.98);
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.45);
+}
+
+.more-menu__item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 12px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.more-menu__item:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.more-menu__item--danger {
+  color: #ff8a8c;
+}
+
+.more-menu__item--danger:not(:disabled):hover {
+  background: rgba(255, 77, 79, 0.16);
+  color: #ff6b6d;
+}
+
+.more-menu__icon {
+  font-size: 14px;
+  line-height: 1;
 }
 
 /* ── Filters ────────────────────────────────────────────── */
@@ -498,6 +590,51 @@
   white-space: nowrap;
 }
 
+/* Сортируемые заголовки: кнопка растянута на всю ячейку, паддинг живёт в ней */
+.proxies-table thead th.is-sortable {
+  padding: 0;
+}
+
+.proxies-table thead th.is-sorted {
+  color: var(--text-primary);
+}
+
+.sort-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 14px 18px;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  cursor: pointer;
+  transition: color 0.15s ease, background 0.15s ease;
+}
+
+.sort-btn:not(:disabled):hover {
+  color: var(--text-primary);
+  background: rgba(var(--azure-rgb), 0.08);
+}
+
+.sort-btn:disabled {
+  cursor: not-allowed;
+}
+
+.sort-btn__glyph {
+  font-size: 12px;
+  line-height: 1;
+  opacity: 0.45;
+}
+
+.is-sorted .sort-btn__glyph {
+  opacity: 1;
+  color: var(--azure-light, var(--text-primary));
+}
+
 .proxies-table tbody td {
   padding: 14px 18px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.05);
@@ -534,7 +671,7 @@
 }
 
 .col-actions {
-  width: 232px;
+  width: 274px;
   text-align: right;
 }
 
@@ -1076,6 +1213,11 @@
     padding: 12px 12px;
   }
 
+  /* У сортируемых заголовков паддинг живёт в кнопке — уплотняем её */
+  .sort-btn {
+    padding: 12px 12px;
+  }
+
   .col-date {
     width: 132px;
     font-size: 12px;
@@ -1086,7 +1228,7 @@
   }
 
   .col-actions {
-    width: 210px;
+    width: 252px;
   }
 
   .proxy-cell {
@@ -1220,8 +1362,9 @@
     font-size: 16px;
   }
 
-  /* Кнопка перезагрузки — полноценный тап-таргет */
-  .proxies-toolbar__filters .icon-btn--reload {
+  /* Кнопки перезагрузки и «⋯» — полноценные тап-таргеты */
+  .proxies-toolbar__filters .icon-btn--reload,
+  .proxies-toolbar__filters .icon-btn--more {
     width: 42px;
     height: 42px;
     font-size: 18px;

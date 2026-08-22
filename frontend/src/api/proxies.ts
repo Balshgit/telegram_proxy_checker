@@ -7,6 +7,12 @@
 
 export type ProxyStatus = 'enabled' | 'disabled'
 
+/**
+ * Значения query-параметра `order_by` у GET /api/proxies (бекендовый `ProxyOrderByEnum`).
+ * Без суффикса `_desc` — по возрастанию.
+ */
+export type ProxyOrderBy = 'latency' | 'latency_desc' | 'created_at' | 'created_at_desc'
+
 export interface TelegramProxy {
   id: number
   /** Человекочитаемое имя прокси, приходит из GET /api/proxies. */
@@ -191,6 +197,8 @@ export interface FetchProxiesParams {
   limit: number
   offset: number
   status?: ProxyStatus | null
+  /** Сортировка выборки. Если не передана — бекенд сортирует по латенси по возрастанию. */
+  orderBy?: ProxyOrderBy | null
   signal?: AbortSignal
 }
 
@@ -198,11 +206,15 @@ export async function fetchProxies({
   limit,
   offset,
   status,
+  orderBy,
   signal,
 }: FetchProxiesParams): Promise<ProxiesPageResult> {
   const query = new URLSearchParams({ limit: String(limit), offset: String(offset) })
   if (status) {
     query.set('proxy_status', status)
+  }
+  if (orderBy) {
+    query.set('order_by', orderBy)
   }
 
   const payload = await request<PaginatedPayload>(`/proxies?${query.toString()}`, { signal })
@@ -264,6 +276,11 @@ export async function updateAllProxies(): Promise<void> {
 /** DELETE /api/proxies — удаляет все прокси из базы. */
 export async function deleteAllProxies(): Promise<void> {
   await request<never>('/proxies', { method: 'DELETE' })
+}
+
+/** DELETE /api/proxies/{proxy_id} — удаляет одну прокси. Ответ пустой (204). */
+export async function deleteProxy(proxyId: number): Promise<void> {
+  await request<never>(`/proxies/${proxyId}`, { method: 'DELETE' })
 }
 
 export interface UpdateProxyParams {

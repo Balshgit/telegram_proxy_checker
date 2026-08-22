@@ -5,6 +5,7 @@ import {
   ApiRequestError,
   createProxies,
   deleteAllProxies,
+  deleteProxy,
   fetchProxies,
   fetchRawProxies,
   updateAllProxies,
@@ -86,6 +87,16 @@ describe('fetchProxies', () => {
 
     await fetchProxies({ limit: 25, offset: 50, status: null })
     expect(lastUrl()).toBe('/api/proxies?limit=25&offset=50')
+  })
+
+  it('добавляет order_by, только когда сортировка задана', async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ status: 200, payload: null }))
+
+    await fetchProxies({ limit: 10, offset: 0, orderBy: 'created_at_desc' })
+    expect(lastUrl()).toBe('/api/proxies?limit=10&offset=0&order_by=created_at_desc')
+
+    await fetchProxies({ limit: 10, offset: 0, orderBy: null })
+    expect(lastUrl()).toBe('/api/proxies?limit=10&offset=0')
   })
 
   it('возвращает безопасные значения по умолчанию при пустом payload', async () => {
@@ -197,6 +208,15 @@ describe('updateAllProxies / deleteAllProxies', () => {
     await deleteAllProxies()
 
     expect(lastUrl()).toBe('/api/proxies')
+    expect(lastInit().method).toBe('DELETE')
+  })
+
+  it('deleteProxy шлёт DELETE /api/proxies/{id}', async () => {
+    fetchMock.mockResolvedValue(makeResponse('', 204))
+
+    await deleteProxy(7)
+
+    expect(lastUrl()).toBe('/api/proxies/7')
     expect(lastInit().method).toBe('DELETE')
   })
 })
