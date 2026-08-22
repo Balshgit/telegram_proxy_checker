@@ -4,6 +4,7 @@ from functools import lru_cache
 from pathlib import Path
 
 from dotenv import load_dotenv
+from pydantic_core import Url
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from settings.infra import (
@@ -34,6 +35,7 @@ class BaseAppSettings(BaseSettings):
     DEBUG: bool
     TIME_ZONE: int
     API_ROOT_PATH: str
+    GITHUB_PROXY_DEFAULT_SOURCE_URLS: list[Url]
 
 
 class AppSettings(

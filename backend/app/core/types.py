@@ -16,3 +16,19 @@ def _seconds_to_timedelta(value: Any) -> Any:
 
 # Интервал, который можно указать как число секунд ("3600"), так и в ISO 8601 ("PT1H").
 IntervalSeconds = Annotated[timedelta, BeforeValidator(_seconds_to_timedelta)]
+
+
+class MissingType:
+    """To indicate that a value is not explicitly passed."""
+
+    __slots__ = ()
+
+    def __repr__(self) -> str:
+        return "Missing"
+
+    def __deepcopy__(self, memo: dict[int, Any]) -> MissingType:
+        """Prevents instantiating a new object when dataclasses.asdict() is called."""
+        return self
+
+
+Missing = MissingType()

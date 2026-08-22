@@ -33,7 +33,7 @@ class DatabaseEngines:
 
     async def create_all_tables(self) -> None:
 
-        error = await self.db.create_postgres_tables()
+        error = await self.db.create_tables()
         if error:
             logger.critical("invalid ddl schemas", error=repr(error))
         else:

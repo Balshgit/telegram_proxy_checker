@@ -21,7 +21,7 @@ TFactory = TypeVar("TFactory", bound=SQLAlchemyFactory)
 
 @pytest.fixture(scope="session", autouse=True)
 async def _create_tables_from_metadata(db_connection: Database) -> None:
-    await db_connection.create_postgres_tables()
+    await db_connection.create_tables()
 
 
 @pytest.fixture(autouse=True)

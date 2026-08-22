@@ -1,9 +1,10 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 
 from httpx import URL
 
-from app.core.proxies.constants import ProxyStatusEnum
+from app.core.proxies.constants import ProxySourceStatusEnum, ProxyStatusEnum, ProxyVendorNameEnum
+from app.core.types import Missing, MissingType
 
 
 @dataclass(slots=True, kw_only=True)
@@ -42,3 +43,15 @@ class ProxyServerDTO:
 class ProxyCountersDTO:
     total: int = 0
     active: int = 0
+
+
+@dataclass(slots=True, kw_only=True)
+class ProxySourceDTO:
+    id: int | MissingType = field(default=Missing)
+    name: str
+    url: URL
+    status: ProxySourceStatusEnum
+    vendor: ProxyVendorNameEnum
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+    proxies_count: int = 0

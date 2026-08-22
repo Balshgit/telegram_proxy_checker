@@ -7,11 +7,12 @@ from sqlalchemy.exc import NoResultFound
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.pagination import OffsetPagination, core_get_page
-from app.core.proxies.constants import ProxyOrderByEnum, ProxyStatusEnum
-from app.core.proxies.dto import ProxyBaseDTO, ProxyCountersDTO, ProxyFilterDTO
+from app.core.proxies.constants import ProxyOrderByEnum, ProxySourceStatusEnum, ProxyStatusEnum
+from app.core.proxies.dto import ProxyBaseDTO, ProxyCountersDTO, ProxyFilterDTO, ProxySourceDTO
 from app.core.proxies.exceptions import ProxyNotFoundException
-from app.core.proxies.models import TelegramProxy
+from app.core.proxies.models import TelegramProxiesSource, TelegramProxy
 from app.core.repositories import BaseDBRepository
+from app.core.types import Missing
 
 
 @dataclass
@@ -159,6 +160,67 @@ class ProxyRepository(BaseDBRepository):
 
     async def delete_proxy_by_id(self, proxy_id: int, session: AsyncSession | None = None) -> None:
         query = delete(TelegramProxy).where(TelegramProxy.id == proxy_id)
+
+        async with self.session_wrap(session) as wrapped_session:
+            await wrapped_session.execute(query)
+
+    async def get_all_proxies_sources(
+        self, status: ProxySourceStatusEnum | None = None, session: AsyncSession | None = None
+    ) -> list[TelegramProxiesSource]:
+        query = select(TelegramProxiesSource)
+
+        if status:
+            query = query.where(TelegramProxiesSource.status == status)
+
+        return await self.get_multiple_results(query=query, session=session, as_scalars=True)
+
+    async def add_proxies_source(self, proxy_source_dto: ProxySourceDTO, session: AsyncSession | None = None) -> None:
+
+        kwargs = {}
+        if proxy_source_dto.id is not Missing:
+            kwargs["id"] = proxy_source_dto.id
+
+        proxy_source = TelegramProxiesSource(
+            name=proxy_source_dto.name,
+            url=str(proxy_source_dto.url),
+            status=proxy_source_dto.status,
+            vendor=proxy_source_dto.vendor,
+            proxies_count=proxy_source_dto.proxies_count,
+            created_at=proxy_source_dto.created_at if proxy_source_dto.created_at else func.now(),
+            **kwargs,
+        )
+
+        async with self.session_wrap(session) as wrapped_session:
+            wrapped_session.add(proxy_source)
+
+    async def update_proxies_source(
+        self, proxy_source_dto: ProxySourceDTO, session: AsyncSession | None = None
+    ) -> None:
+
+        if proxy_source_dto.id is not Missing:
+            return
+
+        kwargs = {}
+        if proxy_source_dto.id is not Missing:
+            kwargs["created_at"] = proxy_source_dto.created_at
+
+        proxy_source = TelegramProxiesSource(
+            id=proxy_source_dto.id,
+            name=proxy_source_dto.name,
+            url=str(proxy_source_dto.url),
+            status=proxy_source_dto.status,
+            vendor=proxy_source_dto.vendor,
+            proxies_count=proxy_source_dto.proxies_count,
+            updated_at=proxy_source_dto.updated_at if proxy_source_dto.updated_at else func.now(),
+            **kwargs,
+        )
+
+        async with self.session_wrap(session) as wrapped_session:
+            await wrapped_session.refresh(proxy_source)
+
+    async def delete_proxies_source_by_id(self, proxy_source_id: int, session: AsyncSession | None = None) -> None:
+
+        query = delete(TelegramProxiesSource).where(TelegramProxiesSource.id == proxy_source_id)
 
         async with self.session_wrap(session) as wrapped_session:
             await wrapped_session.execute(query)
