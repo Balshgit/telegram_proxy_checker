@@ -1,4 +1,5 @@
 from collections.abc import AsyncGenerator
+from datetime import timedelta
 
 import pytest
 from taskiq import AsyncBroker, TaskiqScheduler
@@ -18,6 +19,12 @@ from tests.unit.infra.helpers import (
 @pytest.fixture
 def executions() -> list[None]:
     return []
+
+
+@pytest.fixture
+def task_interval() -> timedelta:
+    """Интервал тестовой таски. Тест может подменить его через `parametrize`."""
+    return TASK_INTERVAL
 
 
 @pytest.fixture
@@ -44,7 +51,11 @@ async def taskiq_container(
 
 
 @pytest.fixture
-async def broker(taskiq_container: Container, executions: list[None]) -> AsyncGenerator[AsyncBroker]:
+async def broker(
+    taskiq_container: Container,
+    executions: list[None],
+    task_interval: timedelta,
+) -> AsyncGenerator[AsyncBroker]:
     broker = taskiq_container.infra.taskiq_broker()
 
     async def scheduled_task() -> None:
@@ -57,7 +68,7 @@ async def broker(taskiq_container: Container, executions: list[None]) -> AsyncGe
     broker.register_task(
         func=scheduled_task,
         task_name=SCHEDULED_TASK_NAME,
-        schedule=[{"kwargs": {}, "interval": TASK_INTERVAL}],
+        schedule=[{"kwargs": {}, "interval": task_interval}],
     )
 
     await broker.startup()

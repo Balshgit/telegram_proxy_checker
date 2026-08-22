@@ -4,6 +4,10 @@ SCHEDULED_TASK_NAME = "test_interval_task"
 TASK_INTERVAL = timedelta(seconds=1)
 CRON_TASK_INTERVAL = timedelta(hours=4)
 
+# Интервал заведомо больше, чем тест успеет прождать: любое выполнение такой таски —
+# это тот самый незапрошенный первый запуск на старте приложения, а не срабатывание по расписанию.
+UNREACHABLE_TASK_INTERVAL = timedelta(hours=4)
+
 # Боевые интервалы (TASKIQ_SCHEDULES_UPDATE_INTERVAL = 1 час, TASKIQ_SCHEDULER_LOOP_INTERVAL = 5 минут)
 # в тестах недостижимы: после первого тика цикл планировщика уходит спать на 5 минут, поэтому
 # интервальная таска успевает отработать ровно один раз. На время теста ужимаем интервалы до секунды.
