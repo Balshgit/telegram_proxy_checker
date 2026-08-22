@@ -6,8 +6,8 @@ from loguru import logger
 from taskiq import TaskiqScheduler
 from taskiq.cli.scheduler.run import SchedulerLoop
 
-SCHEDULES_UPDATE_INTERVAL = timedelta(seconds=60)
-SCHEDULER_LOOP_INTERVAL = timedelta(seconds=1)
+SCHEDULES_UPDATE_INTERVAL = timedelta(hours=1)
+SCHEDULER_LOOP_INTERVAL = timedelta(minutes=5)
 
 
 class TaskiqSchedulerRunner:

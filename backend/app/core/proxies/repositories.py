@@ -6,7 +6,7 @@ from sqlalchemy.exc import NoResultFound
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.pagination import OffsetPagination, core_get_page
-from app.core.proxies.constants import ProxyStatusEnum
+from app.core.proxies.constants import ProxyOrderByEnum, ProxyStatusEnum
 from app.core.proxies.dto import ProxyBaseDTO, ProxyCountersDTO, ProxyFilterDTO
 from app.core.proxies.exceptions import ProxyNotFoundException
 from app.core.proxies.models import TelegramProxy
@@ -45,9 +45,19 @@ class ProxyRepository(BaseDBRepository):
         self,
         filters: ProxyFilterDTO,
         pagination: OffsetPagination,
+        order_by: ProxyOrderByEnum,
         session: AsyncSession | None = None,
     ) -> tuple[Page[list[TelegramProxy]], ProxyCountersDTO]:
-        query = select(TelegramProxy).order_by(TelegramProxy.latency, TelegramProxy.id)
+
+        order_by_clause = {
+            order_by.created_at: TelegramProxy.created_at,
+            order_by.created_at_desc: func.desc(TelegramProxy.created_at),
+            order_by.latency: TelegramProxy.latency,
+            order_by.latency_desc: func.desc(TelegramProxy.latency),
+        }
+
+        query = select(TelegramProxy).order_by(order_by_clause[order_by], TelegramProxy.id)
+
         total_count_query = select(func.count(TelegramProxy.id))
         active_count_query = total_count_query.where(TelegramProxy.status == ProxyStatusEnum.enabled)
 
@@ -145,3 +155,9 @@ class ProxyRepository(BaseDBRepository):
         async with self.session_wrap(session) as wrapped_session:
             result = await wrapped_session.execute(query)
             return list(result.scalars().all())
+
+    async def delete_proxy_by_id(self, proxy_id: int, session: AsyncSession | None = None) -> None:
+        query = delete(TelegramProxy).where(TelegramProxy.id == proxy_id)
+
+        async with self.session_wrap(session) as wrapped_session:
+            await wrapped_session.execute(query)
