@@ -45,6 +45,7 @@ class TaskiqSchedulerRunner:
             scheduler_loop.run(
                 update_interval=self._update_interval,
                 loop_interval=self._loop_interval,
+                skip_first_run=True,
             ),
             name="taskiq-scheduler-loop",
         )

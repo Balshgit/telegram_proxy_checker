@@ -10,8 +10,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from starlette import status
 
 from app.core.constants import MOSCOW_TZ
-from app.core.proxies.constants import ProxyStatusEnum
+from app.core.proxies.constants import ProxyOrderByEnum, ProxyStatusEnum
 from tests.support.factories.proxies import TelegramProxyFactory
+
+FAST_PROXY = "fast"
+SLOW_PROXY = "slow"
+UNREACHABLE_PROXY = "unreachable"
 
 
 async def test_get_all_proxies_empty_list(
@@ -247,6 +251,113 @@ async def test_get_all_proxies_with_best_latency_on_top(
             "latency": None,
         },
     ]
+
+
+@pytest.mark.parametrize(
+    "params, expected_proxies_order",
+    [
+        pytest.param({}, [FAST_PROXY, SLOW_PROXY, UNREACHABLE_PROXY], id="latency asc is the default order"),
+        pytest.param(
+            {"order_by": ProxyOrderByEnum.latency},
+            [FAST_PROXY, SLOW_PROXY, UNREACHABLE_PROXY],
+            id="latency asc",
+        ),
+        pytest.param(
+            {"order_by": ProxyOrderByEnum.latency_desc},
+            [UNREACHABLE_PROXY, SLOW_PROXY, FAST_PROXY],
+            id="latency desc",
+        ),
+        pytest.param(
+            {"order_by": ProxyOrderByEnum.created_at},
+            [SLOW_PROXY, UNREACHABLE_PROXY, FAST_PROXY],
+            id="created_at asc",
+        ),
+        pytest.param(
+            {"order_by": ProxyOrderByEnum.created_at_desc},
+            [FAST_PROXY, UNREACHABLE_PROXY, SLOW_PROXY],
+            id="created_at desc",
+        ),
+    ],
+)
+async def test_get_all_proxies_ordered(
+    rest_client: AsyncClient,
+    db_rollback_session: AsyncSession,
+    sqlalchemy_model_factory_maker: Callable[
+        [type[SQLAlchemyFactory], AsyncSession], Awaitable[type[SQLAlchemyFactory]]
+    ],
+    params: dict[str, Any],
+    expected_proxies_order: list[str],
+) -> None:
+    """
+    Порядок по latency и по created_at специально задан разным, иначе сортировки не отличить друг от друга.
+
+    Прокси без latency (`None`) проверяет дефолтное поведение постгреса:
+    ASC отдаёт NULL последними, DESC — первыми.
+    """
+    proxy_factory = await sqlalchemy_model_factory_maker(factory_cls=TelegramProxyFactory, session=db_rollback_session)
+
+    now = datetime.now(tz=MOSCOW_TZ).replace(tzinfo=None)
+
+    proxies = {
+        FAST_PROXY: await proxy_factory.create_async(latency=42, created_at=now),
+        SLOW_PROXY: await proxy_factory.create_async(latency=543, created_at=now - timedelta(days=2)),
+        UNREACHABLE_PROXY: await proxy_factory.create_async(latency=None, created_at=now - timedelta(days=1)),
+    }
+    expected_ids = [proxies[proxy_key].id for proxy_key in expected_proxies_order]
+
+    response = await rest_client.get("/api/proxies", params=params)
+
+    assert response.status_code == status.HTTP_200_OK, response.text
+
+    data = response.json()["payload"]["data"]
+
+    assert len(data) == 3
+    assert_that(data).extracting("id").is_equal_to(expected_ids)
+
+
+async def test_get_all_proxies_ordering_is_kept_on_the_next_page(
+    rest_client: AsyncClient,
+    db_rollback_session: AsyncSession,
+    sqlalchemy_model_factory_maker: Callable[
+        [type[SQLAlchemyFactory], AsyncSession], Awaitable[type[SQLAlchemyFactory]]
+    ],
+) -> None:
+    """`order_by` должен уезжать в ссылку на следующую страницу, иначе выдача поедет между страницами."""
+    proxy_factory = await sqlalchemy_model_factory_maker(factory_cls=TelegramProxyFactory, session=db_rollback_session)
+
+    proxy_1 = await proxy_factory.create_async(latency=1)
+    proxy_2 = await proxy_factory.create_async(latency=2)
+    proxy_3 = await proxy_factory.create_async(latency=3)
+    expected_ids = [proxy_3.id, proxy_2.id, proxy_1.id]
+
+    response = await rest_client.get("/api/proxies", params={"limit": 2, "order_by": ProxyOrderByEnum.latency_desc})
+
+    assert response.status_code == status.HTTP_200_OK, response.text
+
+    data = response.json()["payload"]["data"]
+    next_page = response.json()["payload"]["pagination"]["next_page"]
+
+    assert_that(data).extracting("id").is_equal_to(expected_ids[:2])
+    assert next_page is not None
+    assert f"order_by={ProxyOrderByEnum.latency_desc.value}" in next_page
+
+    response = await rest_client.get(next_page)
+
+    assert response.status_code == status.HTTP_200_OK, response.text
+
+    data = response.json()["payload"]["data"]
+
+    assert_that(data).extracting("id").is_equal_to(expected_ids[2:])
+
+
+async def test_get_all_proxies_with_unknown_order_by(
+    rest_client: AsyncClient,
+    db_rollback_session: AsyncSession,
+) -> None:
+
+    response = await rest_client.get("/api/proxies", params={"order_by": "unknown"})
+
+    assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT, response.text
 
 
 async def test_get_raw_proxies_on_empty_database(

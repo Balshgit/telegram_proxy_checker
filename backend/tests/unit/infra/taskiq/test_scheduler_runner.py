@@ -15,6 +15,12 @@ from app.infra.taskiq.scheduler_runner import (
 SCHEDULED_TASK_NAME = "test_interval_task"
 TASK_INTERVAL = timedelta(seconds=1)
 
+# Боевые интервалы (SCHEDULES_UPDATE_INTERVAL = 1 час, SCHEDULER_LOOP_INTERVAL = 5 минут) в тестах
+# недостижимы: после первого тика цикл планировщика уходит спать на 5 минут, поэтому интервальная
+# задача успевает отработать ровно один раз. Подменяем интервалы на секундные.
+SCHEDULES_UPDATE_INTERVAL_FOR_TESTS = timedelta(seconds=1)
+SCHEDULER_LOOP_INTERVAL_FOR_TESTS = timedelta(seconds=1)
+
 # Планировщик перед первым тиком досыпает до начала следующей секунды,
 # поэтому запас на два срабатывания интервальной задачи — 1s + 1s + 1s.
 EXECUTIONS_WAIT_TIMEOUT = 5.0
@@ -53,7 +59,17 @@ def scheduler(broker: InMemoryBroker) -> TaskiqScheduler:
 
 @pytest.fixture
 async def runner(scheduler: TaskiqScheduler) -> AsyncGenerator[TaskiqSchedulerRunner]:
-    runner = TaskiqSchedulerRunner(scheduler=scheduler)
+    """
+    Раннер с укороченными интервалами.
+
+    Подменять константы модуля через patch бесполезно: они уже связаны как значения по умолчанию
+    в сигнатуре `TaskiqSchedulerRunner.__init__`, поэтому интервалы передаются явно.
+    """
+    runner = TaskiqSchedulerRunner(
+        scheduler=scheduler,
+        update_interval=SCHEDULES_UPDATE_INTERVAL_FOR_TESTS,
+        loop_interval=SCHEDULER_LOOP_INTERVAL_FOR_TESTS,
+    )
     yield runner
     await runner.stop()
 
@@ -70,8 +86,16 @@ async def _wait_for(predicate: Callable[[], bool], timeout: float = EXECUTIONS_W
 
 
 def test_default_intervals_match_taskiq_cli_defaults() -> None:
-    assert timedelta(seconds=60) == SCHEDULES_UPDATE_INTERVAL
-    assert timedelta(seconds=1) == SCHEDULER_LOOP_INTERVAL
+    assert timedelta(seconds=3600) == SCHEDULES_UPDATE_INTERVAL
+    assert timedelta(seconds=300) == SCHEDULER_LOOP_INTERVAL
+
+
+def test_runner_without_explicit_intervals_uses_defaults(scheduler: TaskiqScheduler) -> None:
+    """Фиксирует, что укороченные интервалы живут только в тестах, а боевой раннер берёт константы модуля."""
+    runner = TaskiqSchedulerRunner(scheduler=scheduler)
+
+    assert runner._update_interval == SCHEDULES_UPDATE_INTERVAL
+    assert runner._loop_interval == SCHEDULER_LOOP_INTERVAL
 
 
 async def test_start_launches_scheduler_loop(runner: TaskiqSchedulerRunner) -> None:

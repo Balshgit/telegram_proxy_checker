@@ -50,10 +50,10 @@ class ProxyRepository(BaseDBRepository):
     ) -> tuple[Page[list[TelegramProxy]], ProxyCountersDTO]:
 
         order_by_clause = {
-            order_by.created_at: TelegramProxy.created_at,
-            order_by.created_at_desc: func.desc(TelegramProxy.created_at),
-            order_by.latency: TelegramProxy.latency,
-            order_by.latency_desc: func.desc(TelegramProxy.latency),
+            ProxyOrderByEnum.created_at: TelegramProxy.created_at.asc(),
+            ProxyOrderByEnum.created_at_desc: TelegramProxy.created_at.desc(),
+            ProxyOrderByEnum.latency: TelegramProxy.latency.asc(),
+            ProxyOrderByEnum.latency_desc: TelegramProxy.latency.desc(),
         }
 
         query = select(TelegramProxy).order_by(order_by_clause[order_by], TelegramProxy.id)
