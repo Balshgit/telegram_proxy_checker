@@ -195,7 +195,7 @@ async def test_save_new_proxies_deduplicates_urls_from_several_sources(
 
     raw_proxies_by_source = {
         first_source.url: shared_url,
-        second_source.url: "\n".join([shared_url, unique_url]),
+        second_source.url: f"{shared_url}\n{unique_url}",
     }
 
     async with (
