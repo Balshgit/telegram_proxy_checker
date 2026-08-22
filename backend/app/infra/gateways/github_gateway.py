@@ -5,7 +5,8 @@ from dataclasses import dataclass
 from http import HTTPMethod
 from typing import cast
 
-from httpx import URL, QueryParams
+from httpx import URL, HTTPStatusError, QueryParams
+from loguru import logger
 
 from app.core.concurrency import run_async
 from app.core.proxies.constants import PROXY_PING_TIMEOUT, ProxyStatusEnum
@@ -15,18 +16,10 @@ from app.infra.adapters.http_adapter import BaseHttpAdapter
 
 @dataclass
 class GithubGateway:
-    http_adapter: BaseHttpAdapter
+    github_http_adapter: BaseHttpAdapter
 
-    async def get_proxies_list(self) -> list[URL]:
-        response = await self.http_adapter.send_request_and_raise_for_status(
-            method=HTTPMethod.GET, url="SoliSpirit/mtproto/refs/heads/master/all_proxies.txt"
-        )
-        content = response.content.decode()
-
-        return [URL(url) for url in content.split("\n")]
-
-    async def get_urls_for_ping(self) -> list[URL]:
-        proxy_urls = await self.get_proxies_list()
+    async def get_urls_for_ping(self, proxy_source: str) -> list[URL]:
+        proxy_urls = await self._get_proxies_urls_from_github(url=proxy_source)
         urls_to_ping = []
         for url in proxy_urls:
             proxy_server = self._get_params_from_proxy(url.params)
@@ -60,6 +53,16 @@ class GithubGateway:
         tasks = [self.get_host_latency(url) for url in urls]
         proxies_dtos = await run_async(*tasks)
         return list(proxies_dtos)
+
+    async def _get_proxies_urls_from_github(self, url: str) -> list[URL]:
+        response = await self.github_http_adapter.send_request_and_raise_for_status(method=HTTPMethod.GET, url=url)
+        urls = []
+        try:
+            content = response.content.decode()
+            urls = [URL(url) for url in content.split("\n")]
+        except HTTPStatusError as exc:
+            logger.error("cant get proxies from github", exc_info=str(exc))
+        return urls
 
     @staticmethod
     def _get_params_from_proxy(params: QueryParams) -> ProxyServerDTO:

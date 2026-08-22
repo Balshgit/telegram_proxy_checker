@@ -12,6 +12,7 @@ from app.core.proxies.constants import ProxyStatusEnum
 from app.core.proxies.dto import ProxyBaseDTO
 from app.infra.gateways.github_gateway import GithubGateway
 from app.infra.taskiq.executor import TaskiqTasksExecutor
+from tests.support.factories.proxies import GITHUB_RAW_BASE_URL
 
 GITHUB_PROXIES_ROUTE_NAME = "github_get_proxies"
 
@@ -42,14 +43,37 @@ async def mocked_github_get_proxies(raw_proxies: str) -> AsyncGenerator[MockRout
     """
     async with respx.mock(
         assert_all_mocked=True,
-        base_url="https://raw.githubusercontent.com",
+        base_url=GITHUB_RAW_BASE_URL,
     ) as respx_mock:
-        github_get_proxies = respx_mock.get(
-            "/SoliSpirit/mtproto/refs/heads/master/all_proxies.txt", name=GITHUB_PROXIES_ROUTE_NAME
-        )
+        github_get_proxies = respx_mock.get(name=GITHUB_PROXIES_ROUTE_NAME)
         github_get_proxies.return_value = Response(
             status_code=200, headers={"Content-Type": PLAIN_TEXT_MEDIA_TYPE}, content=raw_proxies
         )
+        yield respx_mock
+
+
+def source_route_name(source_url: str) -> str:
+    """Имя respx-роута для конкретного источника, чтобы проверять вызовы по каждому источнику отдельно."""
+    return f"{GITHUB_PROXIES_ROUTE_NAME}:{source_url}"
+
+
+@asynccontextmanager
+async def mocked_github_get_proxies_by_source(raw_proxies_by_source: Mapping[str, str]) -> AsyncGenerator[MockRouter]:
+    """
+    То же, что `mocked_github_get_proxies`, но сразу для нескольких источников.
+
+    :param raw_proxies_by_source: мапа {url источника: сырой ответ со списком проксей}.
+
+    Каждый источник получает свой роут с именем `source_route_name(source_url)`.
+    Проверки `mock.calls` / `mock.routes[...]` должны быть ВНУТРИ `async with`: на выходе respx
+    делает `router.reset()` и чистит счётчики.
+    """
+    async with respx.mock(assert_all_mocked=True, base_url=GITHUB_RAW_BASE_URL) as respx_mock:
+        for source_url, raw_proxies in raw_proxies_by_source.items():
+            route = respx_mock.get(url=source_url, name=source_route_name(source_url))
+            route.return_value = Response(
+                status_code=200, headers={"Content-Type": PLAIN_TEXT_MEDIA_TYPE}, content=raw_proxies
+            )
         yield respx_mock
 
 

@@ -49,7 +49,7 @@ class Database:
     def build(cls, *, dsn: str, debug: bool) -> Database:
         return cls(db_connect_url=dsn, echo_logs=debug)
 
-    async def create_postgres_tables(self) -> Exception | None:
+    async def create_tables(self) -> Exception | None:
         try:
             async with self._engine.begin() as conn:
                 await self._create_postgres_shema(connection=conn, schema_name="public")

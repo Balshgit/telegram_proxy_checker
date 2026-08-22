@@ -9,6 +9,6 @@ class AdaptersContainer(containers.DeclarativeContainer):
 
     prc_in_memory_cache: providers.Resource[TPCTLRUCache] = providers.Resource(init_prc_in_memory_cache)
 
-    github_adapter: providers.Singleton[BaseHttpAdapter] = providers.Singleton(
+    github_http_adapter: providers.Singleton[BaseHttpAdapter] = providers.Singleton(
         BaseHttpAdapter, host="https://raw.githubusercontent.com"
     )
