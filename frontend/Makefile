@@ -2,7 +2,8 @@ GREEN  := $(shell tput -Txterm setaf 2)
 YELLOW := $(shell tput -Txterm setaf 3)
 RESET  := $(shell tput -Txterm sgr0)
 
-.PHONY: help app
+.PHONY: help app build test test-watch test-coverage typecheck
+
 .DEFAULT_GOAL := help
 
 
@@ -13,6 +14,26 @@ app:
 ## Собрать приложение.
 build:
 	npm run build
+
+
+## Запустить все тесты.
+test:
+	npm run test
+
+
+## Запустить тесты в watch режиме.
+test-watch:
+	npm run test:watch
+
+
+## Запустить тесты с отчетом о покрытии.
+test-coverage:
+	npm run test:coverage
+
+
+## Проверить типы в коде и тестах.
+typecheck:
+	npm run typecheck && npm run typecheck:test
 
 
 help:

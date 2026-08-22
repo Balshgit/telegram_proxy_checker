@@ -16,7 +16,7 @@ from app.api.responses import build_responses
 from app.api.router import TPCAPIRoute
 from app.core.constants import ResourceType
 from app.core.pagination import OffsetPagination
-from app.core.proxies.constants import ProxyStatusEnum
+from app.core.proxies.constants import ProxyOrderByEnum, ProxyStatusEnum
 from app.core.proxies.dto import ProxyFilterDTO
 from app.core.proxies.exceptions import NoProxiesAddedException, ProxyNotFoundException
 from app.core.proxies.services import ProxyService
@@ -38,7 +38,8 @@ router = APIRouter(route_class=TPCAPIRoute)
 @inject
 async def get_paginated_proxies(
     proxy_service: Annotated[ProxyService, Depends(AsyncProvide[Container.services.proxy_service])],
-    pagination: OffsetPagination = Depends(get_offset_pagination),
+    pagination: Annotated[OffsetPagination, Depends(get_offset_pagination)],
+    order_by: Annotated[ProxyOrderByEnum, Query(..., description="Сортировать прокси")] = ProxyOrderByEnum.latency,
     created_from: Annotated[
         datetime | None, Query(..., description="Фильтровать от той даты, когда урлы прокси были создан")
     ] = None,
@@ -50,7 +51,9 @@ async def get_paginated_proxies(
 
     filters = ProxyFilterDTO(created_from=created_from, created_to=created_to, status=proxy_status)
 
-    proxies_page, counters = await proxy_service.get_all_proxies(pagination=pagination, filters=filters)
+    proxies_page, counters = await proxy_service.get_all_proxies(
+        pagination=pagination, filters=filters, order_by=order_by
+    )
 
     return PaginationResponseWithCounters.new(
         status_code=status.HTTP_200_OK,
@@ -133,6 +136,22 @@ async def delete_all_proxies(
 ) -> None:
 
     await proxy_service.delete_all_proxies()
+
+
+@router.delete(
+    "/proxies/{proxy_id}",
+    name="proxies:delete_a_proxy",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Удаление одной прокси из базы",
+    responses=build_responses(status_code=status.HTTP_204_NO_CONTENT, response_model=None),
+)
+@inject
+async def delete_a_proxy(
+    proxy_id: Annotated[int, Path(..., description="ID прокси для удаления")],
+    proxy_service: Annotated[ProxyService, Depends(AsyncProvide[Container.services.proxy_service])],
+) -> None:
+
+    await proxy_service.delete_proxy_by_id(proxy_id=proxy_id)
 
 
 @router.patch(

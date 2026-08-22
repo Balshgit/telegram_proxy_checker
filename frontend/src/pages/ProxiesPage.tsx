@@ -5,6 +5,7 @@ import {
   ApiRequestError,
   createProxies,
   deleteAllProxies,
+  deleteProxy,
   fetchProxies,
   fetchRawProxies,
   updateAllProxies,
@@ -13,28 +14,34 @@ import {
 import type { ProxyStatus, TelegramProxy } from '../api/proxies'
 
 import {
+  ariaSortFor,
   buildPageItems,
   copyToClipboard,
   COPY_SCOPE_EMPTY_TEXT,
   COPY_SCOPE_STATUS,
+  DEFAULT_SORT,
   filteredTotalFor,
   formatDate,
   latencyTone,
+  nextSortState,
   NOTHING_TO_ADD_TOAST,
   PAGE_SIZE_OPTIONS,
   proxyLabel,
+  sortGlyph,
+  SORT_FIELD_LABELS,
   STATUS_FILTERS,
   STATUS_LABELS,
   STATUS_OPTIONS,
+  toOrderBy,
   truncate,
 } from './proxiesPage.helpers'
-import type { CopyScope, StatusFilter } from './proxiesPage.helpers'
+import type { CopyScope, SortField, SortState, StatusFilter } from './proxiesPage.helpers'
 
 import './ProxiesPage.css'
 
 type PendingAction = 'create' | 'delete' | 'refresh-all' | null
 /** Что именно сейчас происходит с конкретной строкой таблицы. */
-type RowAction = 'refresh' | 'status'
+type RowAction = 'refresh' | 'status' | 'delete'
 
 interface Toast {
   id: number
@@ -59,11 +66,15 @@ function ProxiesPage() {
   const [limit, setLimit] = useState(PAGE_SIZE_OPTIONS[0])
   const [offset, setOffset] = useState(0)
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('enabled')
+  const [sort, setSort] = useState<SortState>(DEFAULT_SORT)
 
   const [isLoading, setIsLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [pendingAction, setPendingAction] = useState<PendingAction>(null)
   const [isConfirmOpen, setIsConfirmOpen] = useState(false)
+  /** Прокси, для которой открыт диалог подтверждения удаления одной строки. */
+  const [proxyToDelete, setProxyToDelete] = useState<TelegramProxy | null>(null)
+  const [isMenuOpen, setIsMenuOpen] = useState(false)
   const [copiedId, setCopiedId] = useState<number | null>(null)
   const [copyingScope, setCopyingScope] = useState<CopyScope | null>(null)
   const [copiedScope, setCopiedScope] = useState<CopyScope | null>(null)
@@ -71,6 +82,7 @@ function ProxiesPage() {
   const [toasts, setToasts] = useState<Toast[]>([])
 
   const toastSeq = useRef(0)
+  const menuRef = useRef<HTMLDivElement | null>(null)
 
   const pushToast = useCallback((kind: Toast['kind'], text: string, hint?: string) => {
     toastSeq.current += 1
@@ -94,6 +106,7 @@ function ProxiesPage() {
           limit,
           offset,
           status: statusFilter === 'all' ? null : statusFilter,
+          orderBy: toOrderBy(sort),
           signal,
         })
         if (signal?.aborted) {
@@ -115,7 +128,7 @@ function ProxiesPage() {
         }
       }
     },
-    [limit, offset, statusFilter],
+    [limit, offset, sort, statusFilter],
   )
 
   useEffect(() => {
@@ -123,6 +136,37 @@ function ProxiesPage() {
     void loadProxies(controller.signal)
     return () => controller.abort()
   }, [loadProxies])
+
+  /** Меню «⋯» закрывается по клику мимо и по Escape. */
+  useEffect(() => {
+    if (!isMenuOpen) {
+      return
+    }
+
+    const onPointerDown = (event: MouseEvent) => {
+      if (!menuRef.current?.contains(event.target as Node)) {
+        setIsMenuOpen(false)
+      }
+    }
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setIsMenuOpen(false)
+      }
+    }
+
+    document.addEventListener('mousedown', onPointerDown)
+    document.addEventListener('keydown', onKeyDown)
+    return () => {
+      document.removeEventListener('mousedown', onPointerDown)
+      document.removeEventListener('keydown', onKeyDown)
+    }
+  }, [isMenuOpen])
+
+  /** Клик по сортируемому заголовку: меняем порядок и возвращаемся на первую страницу. */
+  const handleSort = useCallback((field: SortField) => {
+    setSort((current) => nextSortState(current, field))
+    setOffset(0)
+  }, [])
 
   const handleAddProxies = useCallback(async () => {
     setPendingAction('create')
@@ -170,6 +214,7 @@ function ProxiesPage() {
 
   const handleDeleteAll = useCallback(async () => {
     setIsConfirmOpen(false)
+    setIsMenuOpen(false)
     setPendingAction('delete')
     try {
       await deleteAllProxies()
@@ -182,6 +227,34 @@ function ProxiesPage() {
       setPendingAction(null)
     }
   }, [loadProxies, pushToast])
+
+  /**
+   * DELETE /api/proxies/{id} — удаление одной прокси.
+   * После успеха перезагружаем страницу списка: счётчики и пагинация живут на бекенде.
+   */
+  const handleDeleteProxy = useCallback(
+    async (proxy: TelegramProxy) => {
+      setProxyToDelete(null)
+      setRowPending((current) => ({ ...current, [proxy.id]: 'delete' }))
+      try {
+        await deleteProxy(proxy.id)
+        pushToast('success', `Прокси ${proxyLabel(proxy)} удалена`)
+        await loadProxies()
+      } catch (error) {
+        pushToast(
+          'error',
+          error instanceof ApiRequestError ? error.message : `Не удалось удалить прокси ${proxyLabel(proxy)}`,
+        )
+      } finally {
+        setRowPending((current) => {
+          const next = { ...current }
+          delete next[proxy.id]
+          return next
+        })
+      }
+    },
+    [loadProxies, pushToast],
+  )
 
   const handleCopy = useCallback(
     async (proxy: TelegramProxy) => {
@@ -396,25 +469,6 @@ function ProxiesPage() {
           <div className="proxies-toolbar__actions">
             <button
               type="button"
-              className="btn btn--red"
-              onClick={() => setIsConfirmOpen(true)}
-              disabled={isBusy || (total === 0 && !isLoading)}
-              title="Удалить все прокси"
-            >
-              {pendingAction === 'delete' ? (
-                <span className="btn__spinner" />
-              ) : (
-                <span className="btn__icon" aria-hidden="true">
-                  🗑
-                </span>
-              )}
-              <span className="btn__text">
-                Удалить<span className="btn__text-extra"> все прокси</span>
-              </span>
-            </button>
-
-            <button
-              type="button"
               className="btn btn--blue"
               onClick={handleAddProxies}
               disabled={isBusy}
@@ -502,6 +556,47 @@ function ProxiesPage() {
                 ↻
               </span>
             </button>
+
+            {/*
+              Опасное «удалить всё» намеренно спрятано в неприметное меню «⋯»,
+              чтобы его нельзя было нажать мимоходом рядом с обычными действиями.
+            */}
+            <div className="more-menu" ref={menuRef}>
+              <button
+                type="button"
+                className={`icon-btn icon-btn--more${isMenuOpen ? ' is-open' : ''}`}
+                onClick={() => setIsMenuOpen((current) => !current)}
+                disabled={isBusy}
+                title="Ещё"
+                aria-label="Ещё действия"
+                aria-haspopup="menu"
+                aria-expanded={isMenuOpen}
+              >
+                <span className="icon-btn__glyph" aria-hidden="true">
+                  {pendingAction === 'delete' ? <span className="btn__spinner" /> : '⋯'}
+                </span>
+              </button>
+
+              {isMenuOpen && (
+                <div className="more-menu__popup" role="menu">
+                  <button
+                    type="button"
+                    className="more-menu__item more-menu__item--danger"
+                    role="menuitem"
+                    onClick={() => {
+                      setIsMenuOpen(false)
+                      setIsConfirmOpen(true)
+                    }}
+                    disabled={isBusy || (total === 0 && !isLoading)}
+                  >
+                    <span className="more-menu__icon" aria-hidden="true">
+                      🗑
+                    </span>
+                    Удалить все прокси
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
         </div>
 
@@ -549,8 +644,40 @@ function ProxiesPage() {
                     <th className="col-id">ID</th>
                     <th className="col-proxy">Прокси</th>
                     <th className="col-status">Статус</th>
-                    <th className="col-ping">Пинг</th>
-                    <th className="col-date">Создан</th>
+                    <th
+                      className={`col-ping is-sortable${sort.field === 'latency' ? ' is-sorted' : ''}`}
+                      aria-sort={ariaSortFor(sort, 'latency')}
+                    >
+                      <button
+                        type="button"
+                        className="sort-btn"
+                        onClick={() => handleSort('latency')}
+                        disabled={isBusy}
+                        title={`Сортировать по ${SORT_FIELD_LABELS.latency}`}
+                      >
+                        Пинг
+                        <span className="sort-btn__glyph" aria-hidden="true">
+                          {sortGlyph(sort, 'latency')}
+                        </span>
+                      </button>
+                    </th>
+                    <th
+                      className={`col-date is-sortable${sort.field === 'created_at' ? ' is-sorted' : ''}`}
+                      aria-sort={ariaSortFor(sort, 'created_at')}
+                    >
+                      <button
+                        type="button"
+                        className="sort-btn"
+                        onClick={() => handleSort('created_at')}
+                        disabled={isBusy}
+                        title={`Сортировать по ${SORT_FIELD_LABELS.created_at}`}
+                      >
+                        Создан
+                        <span className="sort-btn__glyph" aria-hidden="true">
+                          {sortGlyph(sort, 'created_at')}
+                        </span>
+                      </button>
+                    </th>
                     <th className="col-date">Обновлён</th>
                     <th className="col-actions">Действия</th>
                   </tr>
@@ -652,6 +779,20 @@ function ProxiesPage() {
                                 {copiedId === proxy.id ? '✓' : '⧉'}
                               </span>
                             </button>
+                            <button
+                              type="button"
+                              className={`icon-btn icon-btn--danger${
+                                rowAction === 'delete' ? ' is-loading' : ''
+                              }`}
+                              onClick={() => setProxyToDelete(proxy)}
+                              disabled={isBusy || isRowBusy}
+                              title="Удалить прокси"
+                              aria-label={`Удалить прокси #${proxy.id}`}
+                            >
+                              <span className="icon-btn__glyph" aria-hidden="true">
+                                {rowAction === 'delete' ? <span className="btn__spinner" /> : '🗑'}
+                              </span>
+                            </button>
                           </div>
                         </td>
                       </tr>
@@ -747,7 +888,7 @@ function ProxiesPage() {
           <div className="modal" role="dialog" aria-modal="true" onClick={(event) => event.stopPropagation()}>
             <h2 className="modal__title">Удалить все прокси?</h2>
             <p className="modal__text">
-              Будут удалены все записи из базы{total > 0 ? ` (сейчас: ${total})` : ''}. Действие необратимо.
+              Будут удалены все записи из базы{total > 0 ? ` (сейчас: ${total})` : ''}.
             </p>
             <div className="modal__actions">
               <button type="button" className="btn btn--ghost" onClick={() => setIsConfirmOpen(false)}>
@@ -755,6 +896,27 @@ function ProxiesPage() {
               </button>
               <button type="button" className="btn btn--red" onClick={() => void handleDeleteAll()}>
                 Удалить всё
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {proxyToDelete && (
+        <div className="modal-backdrop" onClick={() => setProxyToDelete(null)}>
+          <div className="modal" role="dialog" aria-modal="true" onClick={(event) => event.stopPropagation()}>
+            <h2 className="modal__title">Удалить прокси {proxyLabel(proxyToDelete)}?</h2>
+            <p className="modal__text">Запись будет удалена из базы.</p>
+            <div className="modal__actions">
+              <button type="button" className="btn btn--ghost" onClick={() => setProxyToDelete(null)}>
+                Отмена
+              </button>
+              <button
+                type="button"
+                className="btn btn--red"
+                onClick={() => void handleDeleteProxy(proxyToDelete)}
+              >
+                Удалить
               </button>
             </div>
           </div>

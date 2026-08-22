@@ -1,13 +1,20 @@
+from datetime import timedelta
 from enum import StrEnum
 from functools import cached_property
 
 from pydantic import PostgresDsn, computed_field
 from pydantic_settings import BaseSettings
 
+from app.core.types import IntervalSeconds
+
 
 class TaskiqSettings(BaseSettings):
     TASKIQ_BROKER_URL: str
     TASKIQ_BROKER_TYPE: str
+
+    # Интервалы `TaskiqSchedulerRunner`: как часто планировщик перечитывает расписания и как часто делает тик цикла.
+    TASKIQ_SCHEDULES_UPDATE_INTERVAL: IntervalSeconds = timedelta(hours=1)
+    TASKIQ_SCHEDULER_LOOP_INTERVAL: IntervalSeconds = timedelta(minutes=5)
 
 
 class LogLevelEnum(StrEnum):

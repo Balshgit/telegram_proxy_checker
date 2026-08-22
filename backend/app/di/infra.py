@@ -36,4 +36,9 @@ class InfraContainer(containers.DeclarativeContainer):
         TaskiqScheduler, broker=taskiq_broker, sources=providers.List(taskiq_broker_source)
     )
     taskiq_tasks_executor = providers.Singleton(TaskiqTasksExecutor, broker=taskiq_broker)
-    taskiq_scheduler_runner = providers.Singleton(TaskiqSchedulerRunner, scheduler=taskiq_scheduler)
+    taskiq_scheduler_runner = providers.Singleton(
+        TaskiqSchedulerRunner,
+        scheduler=taskiq_scheduler,
+        update_interval=config.TASKIQ_SCHEDULES_UPDATE_INTERVAL,
+        loop_interval=config.TASKIQ_SCHEDULER_LOOP_INTERVAL,
+    )

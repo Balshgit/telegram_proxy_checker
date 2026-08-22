@@ -4,7 +4,7 @@ from httpx import URL
 from sqlakeyset import Page
 
 from app.core.pagination import OffsetPagination
-from app.core.proxies.constants import SAVE_POSTGRES_CHUNK_SIZE, ProxyStatusEnum
+from app.core.proxies.constants import SAVE_POSTGRES_CHUNK_SIZE, ProxyOrderByEnum, ProxyStatusEnum
 from app.core.proxies.dto import ProxyCountersDTO, ProxyFilterDTO
 from app.core.proxies.exceptions import NoProxiesAddedException
 from app.core.proxies.models import TelegramProxy
@@ -21,9 +21,12 @@ class ProxyService:
     taskiq_tasks_executor: TaskiqTasksExecutor
 
     async def get_all_proxies(
-        self, filters: ProxyFilterDTO, pagination: OffsetPagination
+        self,
+        filters: ProxyFilterDTO,
+        pagination: OffsetPagination,
+        order_by: ProxyOrderByEnum = ProxyOrderByEnum.latency,
     ) -> tuple[Page[list[TelegramProxy]], ProxyCountersDTO]:
-        return await self.repository.get_paginated_proxies(filters=filters, pagination=pagination)
+        return await self.repository.get_paginated_proxies(filters=filters, pagination=pagination, order_by=order_by)
 
     async def get_raw_proxies_urls(self, status: ProxyStatusEnum | None) -> str:
         urls = await self.repository.get_proxies_urls(status=status)
@@ -90,3 +93,6 @@ class ProxyService:
                 update_proxies_in_database_task,
                 params={"urls": list(map(str, all_next_existing_proxies))},
             )
+
+    async def delete_proxy_by_id(self, proxy_id: int) -> None:
+        await self.repository.delete_proxy_by_id(proxy_id=proxy_id)

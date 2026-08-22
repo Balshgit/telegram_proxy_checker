@@ -2,14 +2,53 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import type { TelegramProxy } from '../api/proxies'
 import {
+  ariaSortFor,
   buildPageItems,
   copyToClipboard,
+  DEFAULT_SORT,
   filteredTotalFor,
   formatDate,
   latencyTone,
+  nextSortState,
   proxyLabel,
+  sortGlyph,
+  toOrderBy,
   truncate,
 } from './proxiesPage.helpers'
+
+describe('сортировка', () => {
+  it('toOrderBy добавляет суффикс _desc только для убывания', () => {
+    expect(toOrderBy({ field: 'latency', direction: 'asc' })).toBe('latency')
+    expect(toOrderBy({ field: 'latency', direction: 'desc' })).toBe('latency_desc')
+    expect(toOrderBy({ field: 'created_at', direction: 'asc' })).toBe('created_at')
+    expect(toOrderBy({ field: 'created_at', direction: 'desc' })).toBe('created_at_desc')
+  })
+
+  it('по умолчанию сортируем по латенси по возрастанию — как и бекенд', () => {
+    expect(toOrderBy(DEFAULT_SORT)).toBe('latency')
+  })
+
+  it('nextSortState переворачивает ту же колонку и сбрасывает направление на новой', () => {
+    const latencyAsc = { field: 'latency', direction: 'asc' } as const
+
+    expect(nextSortState(latencyAsc, 'latency')).toEqual({ field: 'latency', direction: 'desc' })
+    expect(nextSortState({ field: 'latency', direction: 'desc' }, 'latency')).toEqual(latencyAsc)
+    expect(nextSortState({ field: 'latency', direction: 'desc' }, 'created_at')).toEqual({
+      field: 'created_at',
+      direction: 'asc',
+    })
+  })
+
+  it('sortGlyph и ariaSortFor отмечают только активную колонку', () => {
+    const state = { field: 'latency', direction: 'desc' } as const
+
+    expect(sortGlyph(state, 'latency')).toBe('↓')
+    expect(sortGlyph(state, 'created_at')).toBe('↕')
+    expect(ariaSortFor(state, 'latency')).toBe('descending')
+    expect(ariaSortFor({ field: 'latency', direction: 'asc' }, 'latency')).toBe('ascending')
+    expect(ariaSortFor(state, 'created_at')).toBe('none')
+  })
+})
 
 describe('buildPageItems', () => {
   it('до 7 страниц выводит список целиком, без многоточий', () => {

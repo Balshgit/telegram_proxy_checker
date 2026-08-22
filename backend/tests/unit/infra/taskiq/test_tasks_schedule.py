@@ -20,8 +20,7 @@ from app.infra.taskiq.helpers import (
     get_task_name,
     register_tasks,
 )
-
-CRON_TASK_INTERVAL = timedelta(hours=4)
+from tests.unit.infra.helpers import CRON_TASK_INTERVAL
 
 UNSCHEDULED_TASKS: list[Callable[..., Any]] = [save_proxies_to_database_task, update_proxies_in_database_task]
 

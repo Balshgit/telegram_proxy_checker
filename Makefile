@@ -2,20 +2,28 @@ GREEN  := $(shell tput -Txterm setaf 2)
 YELLOW := $(shell tput -Txterm setaf 3)
 RESET  := $(shell tput -Txterm sgr0)
 
-.PHONY: help backend frontend database up-docker-app down-docker-app build-backend build-frontend push-backend push-frontend push-images
+.PHONY: help backend frontend database up-docker-app down-docker-app build-backend build-frontend push-backend push-frontend push-images \
+        test test-backend test-frontend
 .DEFAULT_GOAL := help
 
 ## Запустить backend.
 backend:
-	cd backend && \
-	make app
-	cd -
+	cd backend && make app && cd -
 
 ## Запустить frontend.
 frontend:
-	cd frontend && \
-	make app
-	cd -
+	cd frontend && make app && cd -
+
+## Запустить тесты бекенда.
+test-backend:
+	cd backend && make test && cd -
+
+## Запустить тесты фронтенда.
+test-frontend:
+	cd frontend && make test && cd -
+
+## Запустить тесты бекенда и фронтенда.
+test: test-backend test-frontend
 
 ## Запустить базу данных
 up-database:
