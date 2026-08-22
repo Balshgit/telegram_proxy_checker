@@ -1,7 +1,8 @@
 from dataclasses import dataclass
+from typing import Any
 
 from sqlakeyset import Page
-from sqlalchemy import Integer, cast, delete, func, select, update, values
+from sqlalchemy import ColumnElement, Integer, cast, delete, func, select, update, values
 from sqlalchemy.exc import NoResultFound
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -49,7 +50,7 @@ class ProxyRepository(BaseDBRepository):
         session: AsyncSession | None = None,
     ) -> tuple[Page[list[TelegramProxy]], ProxyCountersDTO]:
 
-        order_by_clause = {
+        order_by_clause: dict[ProxyOrderByEnum, ColumnElement[Any]] = {
             ProxyOrderByEnum.created_at: TelegramProxy.created_at.asc(),
             ProxyOrderByEnum.created_at_desc: TelegramProxy.created_at.desc(),
             ProxyOrderByEnum.latency: TelegramProxy.latency.asc(),

@@ -39,9 +39,7 @@ router = APIRouter(route_class=TPCAPIRoute)
 async def get_paginated_proxies(
     proxy_service: Annotated[ProxyService, Depends(AsyncProvide[Container.services.proxy_service])],
     pagination: Annotated[OffsetPagination, Depends(get_offset_pagination)],
-    order_by: Annotated[
-        ProxyOrderByEnum | None, Query(..., description="Сортировать прокси")
-    ] = ProxyOrderByEnum.latency,
+    order_by: Annotated[ProxyOrderByEnum, Query(..., description="Сортировать прокси")] = ProxyOrderByEnum.latency,
     created_from: Annotated[
         datetime | None, Query(..., description="Фильтровать от той даты, когда урлы прокси были создан")
     ] = None,
