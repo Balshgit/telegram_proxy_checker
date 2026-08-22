@@ -58,6 +58,26 @@ export const SORT_FIELD_LABELS: Record<SortField, string> = {
   created_at: 'дате создания',
 }
 
+/** Разбирает `order_by` обратно в состояние сортировки (обратная операция к `toOrderBy`). */
+export function fromOrderBy(value: ProxyOrderBy): SortState {
+  const suffix = '_desc'
+  return value.endsWith(suffix)
+    ? { field: value.slice(0, -suffix.length) as SortField, direction: 'desc' }
+    : { field: value as SortField, direction: 'asc' }
+}
+
+/*
+ * На узких экранах шапка таблицы скрыта (список превращается в карточки),
+ * поэтому кликнуть по заголовку для сортировки нельзя — тот же набор
+ * вариантов дублируется выпадающим списком в тулбаре.
+ */
+export const SORT_OPTIONS: { value: ProxyOrderBy; label: string }[] = [
+  { value: 'latency', label: 'Пинг ↑' },
+  { value: 'latency_desc', label: 'Пинг ↓' },
+  { value: 'created_at', label: 'Создан ↑' },
+  { value: 'created_at_desc', label: 'Создан ↓' },
+]
+
 /** Сколько соседних страниц показываем слева и справа от текущей. */
 export const PAGE_WINDOW = 2
 /** До этого количества страниц список выводим целиком, без многоточий. */

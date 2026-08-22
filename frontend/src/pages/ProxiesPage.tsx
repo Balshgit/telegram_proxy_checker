@@ -11,7 +11,7 @@ import {
   updateAllProxies,
   updateProxy,
 } from '../api/proxies'
-import type { ProxyStatus, TelegramProxy } from '../api/proxies'
+import type { ProxyOrderBy, ProxyStatus, TelegramProxy } from '../api/proxies'
 
 import {
   ariaSortFor,
@@ -22,6 +22,7 @@ import {
   DEFAULT_SORT,
   filteredTotalFor,
   formatDate,
+  fromOrderBy,
   latencyTone,
   nextSortState,
   NOTHING_TO_ADD_TOAST,
@@ -29,6 +30,7 @@ import {
   proxyLabel,
   sortGlyph,
   SORT_FIELD_LABELS,
+  SORT_OPTIONS,
   STATUS_FILTERS,
   STATUS_LABELS,
   STATUS_OPTIONS,
@@ -523,6 +525,30 @@ function ProxiesPage() {
                 </button>
               ))}
             </div>
+
+            {/*
+              Дубль сортировки для узких экранов: там шапка таблицы скрыта,
+              и кликнуть по заголовку колонки нельзя. На десктопе список спрятан.
+            */}
+            <label className="page-size sort-select">
+              <span className="page-size__label">Сортировка</span>
+              <select
+                value={toOrderBy(sort)}
+                onChange={(event) => {
+                  setSort(fromOrderBy(event.target.value as ProxyOrderBy))
+                  setOffset(0)
+                }}
+                disabled={isBusy}
+                aria-label="Сортировка списка"
+                title="Сортировка списка"
+              >
+                {SORT_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
 
             <label className="page-size">
               <span className="page-size__label">На странице</span>
