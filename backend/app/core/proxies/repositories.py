@@ -1,11 +1,12 @@
 from dataclasses import dataclass
 from typing import Any
 
+from httpx import URL
 from sqlakeyset import Page
 from sqlalchemy import ColumnElement, Integer, cast, delete, func, select, update, values
 from sqlalchemy.exc import NoResultFound
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import contains_eager
+from sqlalchemy.orm import joinedload
 
 from app.core.pagination import OffsetPagination, core_get_page
 from app.core.proxies.constants import ProxyOrderByEnum, ProxySourceStatusEnum, ProxyStatusEnum
@@ -28,7 +29,7 @@ class ProxyRepository(BaseDBRepository):
             raise ProxyNotFoundException(proxy_id=proxy_id) from exc
 
     async def get_all_proxies(self, session: AsyncSession | None = None) -> list[TelegramProxy]:
-        query = select(TelegramProxy).options(contains_eager(TelegramProxy.source))
+        query = select(TelegramProxy).options(joinedload(TelegramProxy.source))
 
         async with self.session_wrap(session) as wrapped_session:
             return await self.get_multiple_results(query=query, session=wrapped_session, as_scalars=True)
@@ -93,6 +94,7 @@ class ProxyRepository(BaseDBRepository):
             TelegramProxy(
                 url=str(proxy.url),
                 name=proxy.name,
+                source_id=proxy.source_id,
                 created_at=func.now(),
                 status=proxy.status,
                 latency=proxy.latency,
@@ -167,13 +169,27 @@ class ProxyRepository(BaseDBRepository):
 
     async def get_all_proxies_sources(
         self, status: ProxySourceStatusEnum | None = None, session: AsyncSession | None = None
-    ) -> list[TelegramProxiesSource]:
+    ) -> list[ProxySourceDTO]:
         query = select(TelegramProxiesSource)
 
         if status:
             query = query.where(TelegramProxiesSource.status == status)
 
-        return await self.get_multiple_results(query=query, session=session, as_scalars=True)
+        result = await self.get_multiple_results(query=query, session=session, as_scalars=True)
+
+        return [
+            ProxySourceDTO(
+                id=source.id,
+                name=source.name,
+                url=URL(source.url),
+                status=source.status,
+                vendor=source.vendor,
+                created_at=source.created_at,
+                updated_at=source.updated_at,
+                proxies_count=source.proxies_count,
+            )
+            for source in result
+        ]
 
     async def add_proxies_source(self, proxy_source_dto: ProxySourceDTO, session: AsyncSession | None = None) -> None:
 

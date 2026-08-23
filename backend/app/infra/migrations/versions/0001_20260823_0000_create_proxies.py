@@ -25,12 +25,13 @@ def upgrade() -> None:
         sa.Column("id", sa.Integer(), autoincrement=True, nullable=False),
         sa.Column("name", sa.String(length=200), nullable=False, comment="Proxy name"),
         sa.Column("url", sa.String(length=4000), nullable=False, comment="Proxy address"),
-        sa.Column("source_id", sa.Integer(), nullable=False, comment="Proxy source id"),
+        sa.Column("source_id", sa.Integer(), nullable=True, comment="Proxy source id"),
         sa.Column("created_at", sa.DateTime(), nullable=False),
         sa.Column("updated_at", sa.DateTime(), nullable=True),
         sa.Column("status", sa.String(length=20), nullable=False),
         sa.Column("latency", sa.Integer(), nullable=True, comment="Latency to proxy"),
         sa.PrimaryKeyConstraint("id"),
+        sa.UniqueConstraint("id", "source_id", name="One url from one source"),
         schema=SCHEMA,
     )
 

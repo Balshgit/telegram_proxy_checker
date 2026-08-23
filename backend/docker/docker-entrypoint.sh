@@ -2,7 +2,7 @@
 set -e
 
 migrate() {
-    exec alembic upgrade "${ALEMBIC_REVISION:-head}"
+    alembic upgrade "${ALEMBIC_REVISION:-head}"
 }
 
 server() {
@@ -10,7 +10,7 @@ server() {
     export PORT=${APP_PORT:-8000}
     # Схема БД не создаётся приложением: перед стартом накатываем миграции.
     if [ "${RUN_MIGRATIONS:-1}" = "1" ]; then
-        alembic upgrade head
+        migrate
     fi
     exec uvicorn --factory app.main:create_app --host ${HOST} --port ${PORT} --no-use-colors --no-access-log
 }

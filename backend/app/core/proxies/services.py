@@ -1,7 +1,6 @@
 from dataclasses import dataclass
 from itertools import chain
 
-from httpx import URL
 from sqlakeyset import Page
 
 from app.core.concurrency import run_async
@@ -12,7 +11,7 @@ from app.core.proxies.constants import (
     ProxySourceStatusEnum,
     ProxyStatusEnum,
 )
-from app.core.proxies.dto import ProxyCountersDTO, ProxyFilterDTO
+from app.core.proxies.dto import ProxyCountersDTO, ProxyFilterDTO, ProxySourceToPingDTO
 from app.core.proxies.exceptions import NoProxiesAddedException
 from app.core.proxies.models import TelegramProxy
 from app.core.proxies.repositories import ProxyRepository
@@ -42,27 +41,29 @@ class ProxyService:
     async def add_new_proxies(self) -> list[TelegramProxy]:
         proxy_sources = await self.repository.get_all_proxies_sources(status=ProxySourceStatusEnum.enabled)
 
-        coros = [self.github_gateway.get_urls_for_ping(proxy_source=str(source.url)) for source in proxy_sources]
+        coros = [self.github_gateway.get_urls_for_ping(proxy_source=ps) for ps in proxy_sources]
 
-        new_proxies_urls = chain.from_iterable(await run_async(*coros)) if coros else []
+        new_proxies_url_lists = list(chain.from_iterable(await run_async(*coros))) if coros else []
 
         existing_proxies = await self.repository.get_all_proxies()
-        existing_proxies_urls = {URL(proxy.url) for proxy in existing_proxies}
+        existing_proxies_urls = [
+            ProxySourceToPingDTO(source_id=proxy.source_id, url=proxy.url) for proxy in existing_proxies
+        ]
 
-        urls_for_ping = list(set(new_proxies_urls).difference(existing_proxies_urls))
+        urls_for_ping = list(set(new_proxies_url_lists).difference(set(existing_proxies_urls)))
 
         if not urls_for_ping:
             raise NoProxiesAddedException()
 
         proxies_dtos = await self.github_gateway.get_host_latency_for_urls(
-            urls=urls_for_ping[:SAVE_POSTGRES_CHUNK_SIZE]
+            urls_with_source=urls_for_ping[:SAVE_POSTGRES_CHUNK_SIZE]
         )
         proxies = await self.repository.save_proxies(proxies_dto=proxies_dtos)
 
         if all_next_proxies := urls_for_ping[SAVE_POSTGRES_CHUNK_SIZE:]:
             await self.taskiq_tasks_executor.run(
                 save_proxies_to_database_task,
-                params={"urls": list(map(str, all_next_proxies))},
+                params={"source_urls": [su.to_dict() for su in all_next_proxies]},
             )
         return proxies
 
@@ -76,8 +77,9 @@ class ProxyService:
                 return proxy
 
             latency = proxy.latency
+            proxy_url_with_source = ProxySourceToPingDTO(source_id=proxy.source_id, url=proxy.url)
             if is_latency_update:
-                proxy_base_dto = await self.github_gateway.get_host_latency(proxy.url)
+                proxy_base_dto = await self.github_gateway.get_host_latency(proxy_url_with_source)
                 status = ProxyStatusEnum.enabled if proxy_base_dto.latency is not None else ProxyStatusEnum.disabled
                 latency = proxy_base_dto.latency
 
@@ -89,10 +91,12 @@ class ProxyService:
 
     async def update_all_proxies(self) -> None:
         existing_proxies = await self.repository.get_all_proxies()
-        existing_proxies_urls = [URL(proxy.url) for proxy in existing_proxies]
+        existing_proxies_urls = [
+            ProxySourceToPingDTO(source_id=proxy.source_id, url=proxy.url) for proxy in existing_proxies
+        ]
 
         proxies_dtos = await self.github_gateway.get_host_latency_for_urls(
-            urls=existing_proxies_urls[:SAVE_POSTGRES_CHUNK_SIZE]
+            urls_with_source=existing_proxies_urls[:SAVE_POSTGRES_CHUNK_SIZE]
         )
 
         if not proxies_dtos:
@@ -103,7 +107,7 @@ class ProxyService:
         if all_next_existing_proxies := existing_proxies_urls[SAVE_POSTGRES_CHUNK_SIZE:]:
             await self.taskiq_tasks_executor.run(
                 update_proxies_in_database_task,
-                params={"urls": list(map(str, all_next_existing_proxies))},
+                params={"source_urls": [su.to_dict() for su in all_next_existing_proxies]},
             )
 
     async def delete_proxy_by_id(self, proxy_id: int) -> None:

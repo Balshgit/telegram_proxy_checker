@@ -33,7 +33,19 @@ def upgrade() -> None:
         sa.PrimaryKeyConstraint("id"),
         schema=SCHEMA,
     )
+    # `proxies` создаётся раньше (0001), поэтому внешний ключ навешиваем здесь.
+    op.create_foreign_key(
+        "proxy_source_ref",
+        source_table="proxies",
+        referent_table="proxies_sources",
+        local_cols=["source_id"],
+        remote_cols=["id"],
+        source_schema=SCHEMA,
+        referent_schema=SCHEMA,
+        ondelete="SET NULL",
+    )
 
 
 def downgrade() -> None:
+    op.drop_constraint("proxy_source_ref", "proxies", schema=SCHEMA, type_="foreignkey")
     op.drop_table("proxies_sources", schema=SCHEMA)

@@ -77,10 +77,11 @@ async def mocked_github_get_proxies_by_source(raw_proxies_by_source: Mapping[str
         yield respx_mock
 
 
-def _build_proxy_dto(url: URL, latency: int | None) -> ProxyBaseDTO:
+def _build_proxy_dto(url: URL, latency: int | None, source_id: int | None) -> ProxyBaseDTO:
     return ProxyBaseDTO(
         url=url,
         name=url.params.get("server", ""),
+        source_id=source_id,
         latency=latency,
         status=ProxyStatusEnum.enabled if latency is not None else ProxyStatusEnum.disabled,
     )

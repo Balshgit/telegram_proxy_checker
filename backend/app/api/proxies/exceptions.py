@@ -12,11 +12,11 @@ class NoProxiesAddedError(BaseError):
 
 
 class NoProxiesAddedResponse(BaseResponse):
-    status: Annotated[int, Field(default=status.HTTP_400_BAD_REQUEST)]
+    status: Annotated[int, Field(default=status.HTTP_202_ACCEPTED)]
     error: NoProxiesAddedError
 
 
 class NoProxiesAddedAPIError(BaseAPIException):
-    status_code = status.HTTP_400_BAD_REQUEST
+    status_code = status.HTTP_202_ACCEPTED
     model = NoProxiesAddedResponse
     title = "No proxies to add"

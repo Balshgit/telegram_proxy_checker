@@ -1,5 +1,6 @@
 from dataclasses import dataclass, field
 from datetime import datetime
+from typing import Any
 
 from httpx import URL
 
@@ -22,6 +23,7 @@ class ProxyFilterDTO:
 class ProxyBaseDTO:
     url: URL
     name: str
+    source_id: int | None
     latency: int | None = None
     status: ProxyStatusEnum
 
@@ -55,3 +57,16 @@ class ProxySourceDTO:
     created_at: datetime | None = None
     updated_at: datetime | None = None
     proxies_count: int = 0
+
+
+@dataclass(slots=True, kw_only=True, unsafe_hash=True)
+class ProxySourceToPingDTO:
+    source_id: int | None | MissingType
+    url: URL
+
+    def __post_init__(self) -> None:
+        self.source_id = None if self.source_id is Missing else self.source_id
+        self.url = URL(self.url) if isinstance(self.url, str) else self.url  # type: ignore[unreachable]
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"source_id": self.source_id, "url": str(self.url)}

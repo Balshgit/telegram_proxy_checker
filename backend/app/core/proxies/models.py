@@ -1,7 +1,9 @@
+from __future__ import annotations
+
 from datetime import datetime
 
 from httpx import URL
-from sqlalchemy import DateTime, Integer, String, UniqueConstraint, func
+from sqlalchemy import DateTime, ForeignKey, Integer, String, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.orm.relationships import foreign, remote
 from sqlalchemy_utils import ChoiceType
@@ -45,7 +47,11 @@ class TelegramProxy(DBBase):
     id: Mapped[int] = mapped_column("id", Integer, primary_key=True, autoincrement=True)
     name: Mapped[str] = mapped_column("name", String(200), comment="Proxy name")
     url: Mapped[URL] = mapped_column("url", String(4000), comment="Proxy address")
-    source_id: Mapped[int | None] = mapped_column("source_id", Integer, comment="Proxy source id")
+    source_id: Mapped[int | None] = mapped_column(
+        "source_id",
+        ForeignKey(TelegramProxiesSource.id, ondelete="SET NULL", name="proxy_source_ref"),
+        comment="Proxy source id",
+    )
     created_at: Mapped[datetime] = mapped_column("created_at", DateTime, default=func.now())
     updated_at: Mapped[datetime | None] = mapped_column("updated_at", DateTime)
     status: Mapped[ProxyStatusEnum] = mapped_column("status", ChoiceType(ProxyStatusEnum, impl=String(20)))
