@@ -15,6 +15,7 @@ class TelegramProxiesSourceFactory(SQLAlchemyFactory[TelegramProxiesSource]):
     status: ProxySourceStatusEnum = factory_random_choice(list(ProxySourceStatusEnum))
     vendor: ProxyVendorNameEnum = factory_random_choice(list(ProxyVendorNameEnum))
     proxies_count: int = 0
+    active_proxies_count: int = 0
 
     @classmethod
     def url(cls) -> str:
@@ -26,11 +27,6 @@ class TelegramProxiesSourceFactory(SQLAlchemyFactory[TelegramProxiesSource]):
 
 
 class TelegramProxyFactory(SQLAlchemyFactory[TelegramProxy]):
-    #: `source_id` — внешний ключ на `proxies_sources`, случайное число от polyfactory уронило бы
-    #: вставку по `proxy_source_ref`. В `build()` он остаётся пустым, в `create_async` /
-    #: `create_batch_async` подставляется id настоящего источника.
-    __set_foreign_keys__ = False
-
     status: ProxyStatusEnum = factory_random_choice(list(ProxyStatusEnum))
 
     @classmethod

@@ -12,7 +12,14 @@ from app.core.proxies.constants import (
     ProxySourceStatusEnum,
     ProxyStatusEnum,
 )
-from app.core.proxies.dto import ProxyCountersDTO, ProxyDTO, ProxyFilterDTO, ProxySourceToPingDTO
+from app.core.proxies.dto import (
+    ProxyCountersDTO,
+    ProxyDTO,
+    ProxyFilterDTO,
+    ProxySourceDTO,
+    ProxySourceToPingDTO,
+    ProxySourceUpdateDTO,
+)
 from app.core.proxies.exceptions import NoProxiesAddedException
 from app.core.proxies.models import TelegramProxy
 from app.core.proxies.repositories import ProxyRepository
@@ -40,7 +47,7 @@ class ProxyService:
         proxies = [
             ProxyDTO(
                 id=proxy.id,
-                source_name=proxy.source.name,
+                source_name=proxy.source.name if proxy.source else None,
                 created_at=proxy.created_at,
                 updated_at=proxy.updated_at,
                 url=proxy.tg_proxy_url,
@@ -53,12 +60,52 @@ class ProxyService:
         ]
         return Page(proxies, proxies_page.paging), counters  # type: ignore[arg-type]
 
+    async def get_proxy(self, proxy_id: int) -> ProxyDTO:
+        proxy = await self.repository.get_proxy_by_id(proxy_id=proxy_id, with_source=True)
+
+        return ProxyDTO(
+            id=proxy.id,
+            source_id=proxy.source_id,
+            source_name=proxy.source.name if proxy.source else None,
+            created_at=proxy.created_at,
+            updated_at=proxy.updated_at,
+            url=proxy.tg_proxy_url,
+            name=proxy.name,
+            latency=proxy.latency,
+            status=proxy.status,
+        )
+
     async def get_raw_proxies_urls(self, status: ProxyStatusEnum | None) -> str:
         urls = await self.repository.get_proxies_urls(status=status)
         return "\n".join(url for url in urls)
 
-    async def add_new_proxies(self) -> None:
-        proxy_sources = await self.repository.get_all_proxies_sources(status=ProxySourceStatusEnum.enabled)
+    async def get_proxies_sources(self, status: ProxySourceStatusEnum | None = None) -> list[ProxySourceDTO]:
+        return await self.repository.get_proxies_sources(status=status)
+
+    async def add_proxies_source(self, proxy_source_dto: ProxySourceDTO) -> ProxySourceDTO:
+        async with self.repository.get_transactional_session() as session:
+            return await self.repository.add_proxies_source(proxy_source_dto=proxy_source_dto, session=session)
+
+    async def update_proxies_source(
+        self, proxy_source_id: int, proxy_source_update_dto: ProxySourceUpdateDTO
+    ) -> ProxySourceDTO:
+        async with self.repository.get_transactional_session() as session:
+            proxy_source = await self.repository.get_proxies_source_by_id(
+                proxy_source_id=proxy_source_id, session=session
+            )
+            return await self.repository.update_proxies_source(
+                proxy_source=proxy_source, proxy_source_update_dto=proxy_source_update_dto, session=session
+            )
+
+    async def delete_proxies_source(self, proxy_source_id: int) -> None:
+        async with self.repository.get_transactional_session() as session:
+            await self.repository.delete_proxies_source_by_id(proxy_source_id=proxy_source_id, session=session)
+
+    async def add_new_proxies(self, sources_ids: set[int] | None = None) -> None:
+        # Пустой набор источников означает "собрать со всех включённых": фильтр просто не применяется.
+        proxy_sources = await self.repository.get_proxies_sources(
+            status=ProxySourceStatusEnum.enabled, sources_ids=sources_ids
+        )
 
         coros = [self.github_gateway.get_urls_for_ping(proxy_source=ps) for ps in proxy_sources]
 

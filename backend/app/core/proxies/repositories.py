@@ -10,18 +10,37 @@ from sqlalchemy.orm import joinedload, load_only
 
 from app.core.pagination import OffsetPagination, core_get_page
 from app.core.proxies.constants import ProxyOrderByEnum, ProxySourceStatusEnum, ProxyStatusEnum
-from app.core.proxies.dto import ProxyBaseDTO, ProxyCountersDTO, ProxyFilterDTO, ProxySourceDTO
-from app.core.proxies.exceptions import ProxyNotFoundException
+from app.core.proxies.dto import ProxyBaseDTO, ProxyCountersDTO, ProxyFilterDTO, ProxySourceDTO, ProxySourceUpdateDTO
+from app.core.proxies.exceptions import ProxyNotFoundException, ProxySourceNotFoundException
 from app.core.proxies.models import TelegramProxiesSource, TelegramProxy
 from app.core.repositories import BaseDBRepository
-from app.core.shared.types import Missing
+
+
+def _build_proxy_source_dto(proxy_source: TelegramProxiesSource) -> ProxySourceDTO:
+    return ProxySourceDTO(
+        id=proxy_source.id,
+        name=proxy_source.name,
+        url=URL(proxy_source.url),
+        status=proxy_source.status,
+        vendor=proxy_source.vendor,
+        created_at=proxy_source.created_at,
+        updated_at=proxy_source.updated_at,
+        proxies_count=proxy_source.proxies_count,
+        active_proxies_count=proxy_source.active_proxies_count,
+    )
 
 
 @dataclass
 class ProxyRepository(BaseDBRepository):
 
-    async def get_proxy_by_id(self, proxy_id: int, session: AsyncSession | None = None) -> TelegramProxy:
+    async def get_proxy_by_id(
+        self, proxy_id: int, with_source: bool = False, session: AsyncSession | None = None
+    ) -> TelegramProxy:
         query = select(TelegramProxy).where(TelegramProxy.id == proxy_id)
+
+        if with_source:
+            # `TelegramProxy.source` объявлен с `lazy="raise"`, поэтому связку нужно тянуть явно.
+            query = query.options(joinedload(TelegramProxy.source).options(load_only(TelegramProxiesSource.name)))
 
         try:
             return await self.get_single_result(query=query, session=session, as_scalar=True)
@@ -182,37 +201,38 @@ class ProxyRepository(BaseDBRepository):
             result = await wrapped_session.execute(query)
             return result.scalars().first()
 
-    async def get_all_proxies_sources(
-        self, status: ProxySourceStatusEnum | None = None, session: AsyncSession | None = None
+    async def get_proxies_sources(
+        self,
+        status: ProxySourceStatusEnum | None = None,
+        sources_ids: set[int] | None = None,
+        session: AsyncSession | None = None,
     ) -> list[ProxySourceDTO]:
-        query = select(TelegramProxiesSource)
+        query = select(TelegramProxiesSource).order_by(TelegramProxiesSource.id)
 
         if status:
             query = query.where(TelegramProxiesSource.status == status)
 
+        if sources_ids:
+            query = query.where(TelegramProxiesSource.id.in_(sources_ids))
+
         result = await self.get_multiple_results(query=query, session=session, as_scalars=True)
 
-        return [
-            ProxySourceDTO(
-                id=source.id,
-                name=source.name,
-                url=URL(source.url),
-                status=source.status,
-                vendor=source.vendor,
-                created_at=source.created_at,
-                updated_at=source.updated_at,
-                proxies_count=source.proxies_count,
-                active_proxies_count=source.active_proxies_count,
-            )
-            for source in result
-        ]
+        return [_build_proxy_source_dto(source) for source in result]
 
-    async def add_proxies_source(self, proxy_source_dto: ProxySourceDTO, session: AsyncSession | None = None) -> None:
+    async def get_proxies_source_by_id(
+        self, proxy_source_id: int, session: AsyncSession | None = None
+    ) -> TelegramProxiesSource:
+        query = select(TelegramProxiesSource).where(TelegramProxiesSource.id == proxy_source_id)
 
-        kwargs = {}
-        if proxy_source_dto.id is not Missing:
-            kwargs["id"] = proxy_source_dto.id
+        try:
+            return await self.get_single_result(query=query, session=session, as_scalar=True)
+        except NoResultFound as exc:
+            raise ProxySourceNotFoundException(proxy_source_id=proxy_source_id) from exc
 
+    async def add_proxies_source(
+        self, proxy_source_dto: ProxySourceDTO, session: AsyncSession | None = None
+    ) -> ProxySourceDTO:
+        # `id` из DTO намеренно игнорируется: его выдаёт последовательность в базе.
         proxy_source = TelegramProxiesSource(
             name=proxy_source_dto.name,
             url=str(proxy_source_dto.url),
@@ -221,37 +241,37 @@ class ProxyRepository(BaseDBRepository):
             proxies_count=proxy_source_dto.proxies_count,
             active_proxies_count=proxy_source_dto.active_proxies_count,
             created_at=proxy_source_dto.created_at if proxy_source_dto.created_at else func.now(),
-            **kwargs,
         )
 
         async with self.session_wrap(session) as wrapped_session:
             wrapped_session.add(proxy_source)
+            await wrapped_session.flush()
+            # `created_at` до рефреша — это SQL-выражение `now()`, а не дата: наружу его отдавать нельзя.
+            await wrapped_session.refresh(proxy_source)
+
+        return _build_proxy_source_dto(proxy_source)
 
     async def update_proxies_source(
-        self, proxy_source_dto: ProxySourceDTO, session: AsyncSession | None = None
-    ) -> None:
+        self,
+        proxy_source: TelegramProxiesSource,
+        proxy_source_update_dto: ProxySourceUpdateDTO,
+        session: AsyncSession | None = None,
+    ) -> ProxySourceDTO:
 
-        if proxy_source_dto.id is not Missing:
-            return
+        changed_fields = proxy_source_update_dto.changed_fields()
 
-        kwargs = {}
-        if proxy_source_dto.id is not Missing:
-            kwargs["created_at"] = proxy_source_dto.created_at
+        if not changed_fields:
+            return _build_proxy_source_dto(proxy_source)
 
-        proxy_source = TelegramProxiesSource(
-            id=proxy_source_dto.id,
-            name=proxy_source_dto.name,
-            url=str(proxy_source_dto.url),
-            status=proxy_source_dto.status,
-            vendor=proxy_source_dto.vendor,
-            proxies_count=proxy_source_dto.proxies_count,
-            active_proxies_count=proxy_source_dto.active_proxies_count,
-            updated_at=proxy_source_dto.updated_at if proxy_source_dto.updated_at else func.now(),
-            **kwargs,
-        )
+        for field_name, value in changed_fields.items():
+            setattr(proxy_source, field_name, value)
+        proxy_source.updated_at = func.now()
 
         async with self.session_wrap(session) as wrapped_session:
+            await wrapped_session.flush()
             await wrapped_session.refresh(proxy_source)
+
+        return _build_proxy_source_dto(proxy_source)
 
     async def recalculate_proxies_sources_counters(
         self, source_ids: set[int] | None = None, session: AsyncSession | None = None
