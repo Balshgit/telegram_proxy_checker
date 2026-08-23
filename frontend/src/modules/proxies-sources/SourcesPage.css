@@ -184,18 +184,6 @@
   overflow-wrap: anywhere;
 }
 
-.source-card__url {
-  color: var(--text-secondary);
-  text-decoration: none;
-  overflow-wrap: anywhere;
-  transition: color 0.15s ease;
-}
-
-.source-card__url:hover {
-  color: var(--azure-light);
-  text-decoration: underline;
-}
-
 .source-card__meta {
   display: flex;
   gap: 18px;

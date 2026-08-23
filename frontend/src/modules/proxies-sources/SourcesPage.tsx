@@ -259,18 +259,18 @@ function SourcesPage({ nav }: SourcesPageProps) {
                           <span className="badge__dot" aria-hidden="true" />
                           {STATUS_LABELS[source.status]}
                         </span>
-                        <span className="badge badge--neutral">{VENDOR_LABELS[source.vendor]}</span>
+                        {/* Вендор и есть ссылка на файл источника: длинный сырой урл прячем
+                            за подписью, полный адрес показываем в подсказке по наведению. */}
+                        <a
+                          className="badge badge--neutral badge--link"
+                          href={source.url}
+                          target="_blank"
+                          rel="noreferrer"
+                          title={source.url}
+                        >
+                          {VENDOR_LABELS[source.vendor]}
+                        </a>
                       </div>
-
-                      <a
-                        className="source-card__url mono"
-                        href={source.url}
-                        target="_blank"
-                        rel="noreferrer"
-                        title={source.url}
-                      >
-                        {truncate(source.url, 90)}
-                      </a>
 
                       <div className="source-card__meta muted">
                         <span>

@@ -396,6 +396,27 @@
   border-color: var(--glass-border);
 }
 
+/* Бейдж-ссылка: за подписью спрятан длинный урл, поэтому кликабельность нужно показать явно. */
+.badge--link {
+  gap: 5px;
+  text-decoration: none;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+/* Стрелка «уйти на внешний адрес» — через ::after, чтобы не подмешивать её в текст ссылки. */
+.badge--link::after {
+  content: '↗';
+  font-size: 11px;
+  opacity: 0.7;
+}
+
+.badge--link:hover {
+  color: var(--azure-light);
+  border-color: rgba(var(--azure-rgb), 0.45);
+  background: rgba(var(--azure-rgb), 0.14);
+}
+
 /* ── Статус: редактируемый дропдаун ─────────────────────── */
 
 .status-select {
@@ -812,6 +833,7 @@ select.field__control option {
   border: 1px solid var(--glass-border);
 }
 
+/* Элемент навигации — ссылка (`<a href>`), поэтому гасим подчёркивание и наследуем размер шрифта. */
 .app-nav__item {
   display: inline-flex;
   align-items: center;
@@ -825,6 +847,7 @@ select.field__control option {
   font-size: 13px;
   font-weight: 600;
   white-space: nowrap;
+  text-decoration: none;
   cursor: pointer;
   transition: all 0.2s ease;
 }

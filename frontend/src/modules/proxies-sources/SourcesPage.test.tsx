@@ -90,6 +90,30 @@ describe('список источников', () => {
     expect(screen.getByText('120')).toBeInTheDocument()
   })
 
+  it('прячет ссылку на файл источника за подписью вендора', async () => {
+    await renderLoadedPage()
+
+    const githubLink = screen.getByRole('link', { name: 'GitHub' })
+
+    expect(githubLink).toHaveAttribute('href', githubSource.url)
+    expect(githubLink).toHaveAttribute('target', '_blank')
+    expect(githubLink).toHaveAttribute('rel', 'noreferrer')
+    // Полный адрес виден только в подсказке по наведению.
+    expect(githubLink).toHaveAttribute('title', githubSource.url)
+
+    // Внешние источники работают так же — вендор всегда ведёт на свой файл.
+    expect(screen.getByRole('link', { name: 'Внешний источник' })).toHaveAttribute(
+      'href',
+      externalSource.url,
+    )
+  })
+
+  it('не показывает сырой адрес источника отдельной строкой', async () => {
+    await renderLoadedPage()
+
+    expect(screen.queryByText(githubSource.url)).not.toBeInTheDocument()
+  })
+
   it('по умолчанию запрашивает все источники, фильтр сужает выборку', async () => {
     const user = await renderLoadedPage()
 
