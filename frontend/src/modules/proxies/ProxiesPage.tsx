@@ -1,27 +1,30 @@
+import type { ReactNode } from 'react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
+import { ApiRequestError } from '../../shared/api/client'
+import { ConfirmDialog } from '../../shared/ui/Modal'
+import { Toasts, useToasts } from '../../shared/ui/Toasts'
+import { copyToClipboard, formatDate, truncate } from '../../shared/ui/format'
+
 import {
-  API_ERROR_CODES,
-  ApiRequestError,
   createProxies,
   deleteAllProxies,
   deleteProxy,
   fetchProxies,
+  fetchProxy,
   fetchRawProxies,
   updateAllProxies,
   updateProxy,
-} from '../api/proxies'
-import type { ProxyOrderBy, ProxyStatus, TelegramProxy } from '../api/proxies'
+} from './api'
+import type { ProxyOrderBy, ProxyStatus, TelegramProxy } from './api'
 
 import {
   ariaSortFor,
   buildPageItems,
-  copyToClipboard,
   COPY_SCOPE_EMPTY_TEXT,
   COPY_SCOPE_STATUS,
   DEFAULT_SORT,
   filteredTotalFor,
-  formatDate,
   fromOrderBy,
   latencyTone,
   nextSortState,
@@ -31,13 +34,13 @@ import {
   sortGlyph,
   SORT_FIELD_LABELS,
   SORT_OPTIONS,
+  sourceLabel,
   STATUS_FILTERS,
   STATUS_LABELS,
   STATUS_OPTIONS,
   toOrderBy,
-  truncate,
-} from './proxiesPage.helpers'
-import type { CopyScope, SortField, SortState, StatusFilter } from './proxiesPage.helpers'
+} from './helpers'
+import type { CopyScope, SortField, SortState, StatusFilter } from './helpers'
 
 import './ProxiesPage.css'
 
@@ -45,21 +48,12 @@ type PendingAction = 'create' | 'delete' | 'refresh-all' | null
 /** Что именно сейчас происходит с конкретной строкой таблицы. */
 type RowAction = 'refresh' | 'status' | 'delete'
 
-interface Toast {
-  id: number
-  kind: 'success' | 'error' | 'info'
-  text: string
-  /** Необязательная вторая строка — поясняет, что делать дальше. */
-  hint?: string
+interface ProxiesPageProps {
+  /** Переключатель страниц из App — рисуется в шапке. */
+  nav?: ReactNode
 }
 
-const TOAST_ICONS: Record<Toast['kind'], string> = {
-  success: '✓',
-  error: '⚠',
-  info: 'ℹ',
-}
-
-function ProxiesPage() {
+function ProxiesPage({ nav }: ProxiesPageProps) {
   const [proxies, setProxies] = useState<TelegramProxy[]>([])
   const [total, setTotal] = useState(0)
   const [activeCount, setActiveCount] = useState(0)
@@ -81,23 +75,9 @@ function ProxiesPage() {
   const [copyingScope, setCopyingScope] = useState<CopyScope | null>(null)
   const [copiedScope, setCopiedScope] = useState<CopyScope | null>(null)
   const [rowPending, setRowPending] = useState<Record<number, RowAction>>({})
-  const [toasts, setToasts] = useState<Toast[]>([])
 
-  const toastSeq = useRef(0)
+  const { toasts, pushToast } = useToasts()
   const menuRef = useRef<HTMLDivElement | null>(null)
-
-  const pushToast = useCallback((kind: Toast['kind'], text: string, hint?: string) => {
-    toastSeq.current += 1
-    const id = toastSeq.current
-    setToasts((current) => [...current, { id, kind, text, hint }])
-    window.setTimeout(
-      () => {
-        setToasts((current) => current.filter((toast) => toast.id !== id))
-      },
-      // Подсказку нужно успеть прочитать — держим такой тост чуть дольше.
-      hint ? 6000 : 4000,
-    )
-  }, [])
 
   const loadProxies = useCallback(
     async (signal?: AbortSignal) => {
@@ -170,27 +150,24 @@ function ProxiesPage() {
     setOffset(0)
   }, [])
 
+  /**
+   * POST /api/proxies отвечает 201 без тела, поэтому актуальный список
+   * (вместе со счётчиками и пагинацией) перезагружаем отдельным запросом.
+   */
   const handleAddProxies = useCallback(async () => {
     setPendingAction('create')
     try {
-      const created = await createProxies()
+      const outcome = await createProxies()
 
-      // Бекенд может ответить 200 с пустым списком — это тот же «нечего добавлять».
-      if (created.length === 0) {
+      if (outcome === 'nothing-to-add') {
         pushToast('info', NOTHING_TO_ADD_TOAST.text, NOTHING_TO_ADD_TOAST.hint)
         return
       }
 
-      pushToast('success', `Добавлено проксей: ${created.length}`)
+      pushToast('success', 'Прокси добавлены')
       setOffset(0)
       await loadProxies()
     } catch (error) {
-      // 400 NoProxiesAddedError — штатный исход, не показываем его как поломку.
-      if (error instanceof ApiRequestError && error.code === API_ERROR_CODES.noProxiesAdded) {
-        pushToast('info', NOTHING_TO_ADD_TOAST.text, NOTHING_TO_ADD_TOAST.hint)
-        return
-      }
-
       pushToast('error', error instanceof ApiRequestError ? error.message : 'Не удалось добавить прокси')
     } finally {
       setPendingAction(null)
@@ -309,14 +286,17 @@ function ProxiesPage() {
   )
 
   /**
-   * PATCH /api/proxies/{id}: точечно обновляет строку без перезагрузки всей таблицы.
-   * Если после обновления прокси перестала подходить под активный фильтр — перезагружаем список.
+   * PATCH /api/proxies/{id} отвечает 202 без тела, поэтому обновлённую строку
+   * дочитываем через GET /api/proxies/{id} и подменяем точечно, без перезагрузки
+   * всей таблицы. Если прокси перестала подходить под фильтр (или её больше нет) —
+   * перезагружаем список целиком.
    */
   const patchProxy = useCallback(
     async (proxy: TelegramProxy, action: RowAction, params: { status?: ProxyStatus; isLatencyUpdate?: boolean }) => {
       setRowPending((current) => ({ ...current, [proxy.id]: action }))
       try {
-        const updated = await updateProxy(proxy.id, params)
+        await updateProxy(proxy.id, params)
+        const updated = await fetchProxy(proxy.id)
 
         if (!updated) {
           await loadProxies()
@@ -416,6 +396,8 @@ function ProxiesPage() {
       <div className="proxies-page__glow" aria-hidden="true" />
 
       <div className="proxies-page__inner">
+        {nav}
+
         <header className="proxies-header">
           <div>
             <h1 className="proxies-header__title">
@@ -712,6 +694,18 @@ function ProxiesPage() {
                             >
                               {proxy.name ? truncate(proxy.name, 48) : 'Без имени'}
                             </span>
+                            {/* Под именем — источник, из которого прокси приехала. */}
+                            <span
+                              className={`proxy-cell__source${
+                                proxy.source_name ? '' : ' proxy-cell__source--empty'
+                              }`}
+                              title={proxy.source_name ?? undefined}
+                            >
+                              <span className="proxy-cell__source-icon" aria-hidden="true">
+                                ⛁
+                              </span>
+                              {sourceLabel(proxy)}
+                            </span>
                           </div>
                         </td>
                         <td className="col-status" data-label="Статус">
@@ -897,58 +891,26 @@ function ProxiesPage() {
       </div>
 
       {isConfirmOpen && (
-        <div className="modal-backdrop" onClick={() => setIsConfirmOpen(false)}>
-          <div className="modal" role="dialog" aria-modal="true" onClick={(event) => event.stopPropagation()}>
-            <h2 className="modal__title">Удалить все прокси?</h2>
-            <p className="modal__text">
-              Будут удалены все записи из базы{total > 0 ? ` (сейчас: ${total})` : ''}.
-            </p>
-            <div className="modal__actions">
-              <button type="button" className="btn btn--ghost" onClick={() => setIsConfirmOpen(false)}>
-                Отмена
-              </button>
-              <button type="button" className="btn btn--red" onClick={() => void handleDeleteAll()}>
-                Удалить всё
-              </button>
-            </div>
-          </div>
-        </div>
+        <ConfirmDialog
+          title="Удалить все прокси?"
+          text={`Будут удалены все записи из базы${total > 0 ? ` (сейчас: ${total})` : ''}.`}
+          confirmLabel="Удалить всё"
+          onConfirm={() => void handleDeleteAll()}
+          onCancel={() => setIsConfirmOpen(false)}
+        />
       )}
 
       {proxyToDelete && (
-        <div className="modal-backdrop" onClick={() => setProxyToDelete(null)}>
-          <div className="modal" role="dialog" aria-modal="true" onClick={(event) => event.stopPropagation()}>
-            <h2 className="modal__title">Удалить прокси {proxyLabel(proxyToDelete)}?</h2>
-            <p className="modal__text">Запись будет удалена из базы.</p>
-            <div className="modal__actions">
-              <button type="button" className="btn btn--ghost" onClick={() => setProxyToDelete(null)}>
-                Отмена
-              </button>
-              <button
-                type="button"
-                className="btn btn--red"
-                onClick={() => void handleDeleteProxy(proxyToDelete)}
-              >
-                Удалить
-              </button>
-            </div>
-          </div>
-        </div>
+        <ConfirmDialog
+          title={`Удалить прокси ${proxyLabel(proxyToDelete)}?`}
+          text="Запись будет удалена из базы."
+          confirmLabel="Удалить"
+          onConfirm={() => void handleDeleteProxy(proxyToDelete)}
+          onCancel={() => setProxyToDelete(null)}
+        />
       )}
 
-      <div className="toasts">
-        {toasts.map((toast) => (
-          <div key={toast.id} className={`toast toast--${toast.kind}`} role="status">
-            <span className="toast__icon" aria-hidden="true">
-              {TOAST_ICONS[toast.kind]}
-            </span>
-            <div className="toast__body">
-              <span className="toast__text">{toast.text}</span>
-              {toast.hint && <span className="toast__hint">{toast.hint}</span>}
-            </div>
-          </div>
-        ))}
-      </div>
+      <Toasts toasts={toasts} />
     </div>
   )
 }

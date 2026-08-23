@@ -13,6 +13,8 @@ from app.core.proxies_sources.constants import ProxySourceStatusEnum
 from tests.integration.api.proxies.helpers import (
     CHUNK_SIZE_FOR_TESTS,
     GITHUB_PROXIES_ROUTE_NAME,
+    PROXY_URL_BASE,
+    TG_PROXY_URL_BASE,
     build_proxy_url,
     deferred_source_urls,
     get_proxies_by_url,
@@ -23,6 +25,7 @@ from tests.integration.api.proxies.helpers import (
     mocked_taskiq_run,
     pinged_proxies,
     source_route_name,
+    to_web_proxy_url,
 )
 from tests.support.factories.proxies import TelegramProxyFactory
 from tests.support.factories.proxies_sources import TelegramProxiesSourceFactory
@@ -413,3 +416,175 @@ async def test_save_proxies_sends_urls_over_chunk_size_to_taskiq(
         assert proxy.latency == 55
         assert proxy.status == ProxyStatusEnum.enabled
         assert proxy.source_id == source_id
+
+
+async def test_save_new_proxies_rewrites_tg_scheme_to_web_host(
+    rest_client: AsyncClient,
+    db_rollback_session: AsyncSession,
+    sqlalchemy_model_factory_maker: Callable[
+        [type[SQLAlchemyFactory], AsyncSession], Awaitable[type[SQLAlchemyFactory]]
+    ],
+) -> None:
+    """
+    Урл `tg://proxy?...` из источника сохраняется в базу как `https://t.me/proxy?...`.
+
+    Параметры при этом не теряются и не переставляются: меняются только схема, хост и путь.
+    """
+    proxies_source_factory = await sqlalchemy_model_factory_maker(
+        factory_cls=TelegramProxiesSourceFactory, session=db_rollback_session
+    )
+
+    source = await proxies_source_factory.create_async(status=ProxySourceStatusEnum.enabled)
+    source_id = source.id
+
+    tg_urls = [build_proxy_url(server=f"10.0.0.{number}", base=TG_PROXY_URL_BASE) for number in range(2)]
+    expected_urls = [to_web_proxy_url(url) for url in tg_urls]
+
+    async with (
+        mocked_github_get_proxies_by_source({source.url: "\n".join(tg_urls)}),
+        mocked_get_host_latency_for_urls(default_latency=42) as mocked_latency,
+    ):
+        response = await rest_client.post("/api/proxies")
+
+    assert response.status_code == status.HTTP_201_CREATED, response.text
+
+    # Нормализация происходит до пинга, поэтому в гейтвей уезжает уже каноничный урл.
+    mocked_latency.assert_awaited_once()
+    assert sorted(str(proxy_to_ping.url) for proxy_to_ping in pinged_proxies(mocked_latency)) == sorted(expected_urls)
+
+    proxies_in_db = await get_proxies_by_url(db_rollback_session)
+
+    assert sorted(proxies_in_db) == sorted(expected_urls)
+
+    for url, proxy in proxies_in_db.items():
+        assert url.startswith(f"{PROXY_URL_BASE}?")
+        assert proxy.source_id == source_id
+        assert proxy.latency == 42
+        assert proxy.status == ProxyStatusEnum.enabled
+
+    # `name` по-прежнему берётся из параметра `server`, а не из хоста урла.
+    assert sorted(proxy.name for proxy in proxies_in_db.values()) == ["10.0.0.0", "10.0.0.1"]
+
+
+async def test_save_new_proxies_deduplicates_the_same_proxy_in_both_schemes(
+    rest_client: AsyncClient,
+    db_rollback_session: AsyncSession,
+    sqlalchemy_model_factory_maker: Callable[
+        [type[SQLAlchemyFactory], AsyncSession], Awaitable[type[SQLAlchemyFactory]]
+    ],
+) -> None:
+    """Одна и та же прокси в схемах `tg://` и `https://t.me` — это один урл и одна запись в базе."""
+    proxies_source_factory = await sqlalchemy_model_factory_maker(
+        factory_cls=TelegramProxiesSourceFactory, session=db_rollback_session
+    )
+
+    first_source = await proxies_source_factory.create_async(status=ProxySourceStatusEnum.enabled)
+    second_source = await proxies_source_factory.create_async(status=ProxySourceStatusEnum.enabled)
+    first_source_id, second_source_id = first_source.id, second_source.id
+
+    tg_url = build_proxy_url(server="10.0.0.1", base=TG_PROXY_URL_BASE)
+    web_url = build_proxy_url(server="10.0.0.1")
+
+    raw_proxies_by_source = {first_source.url: tg_url, second_source.url: web_url}
+
+    async with (
+        mocked_github_get_proxies_by_source(raw_proxies_by_source),
+        mocked_get_host_latency_for_urls(default_latency=42) as mocked_latency,
+    ):
+        response = await rest_client.post("/api/proxies")
+
+    assert response.status_code == status.HTTP_201_CREATED, response.text
+
+    mocked_latency.assert_awaited_once()
+    assert [str(proxy_to_ping.url) for proxy_to_ping in pinged_proxies(mocked_latency)] == [web_url]
+
+    proxies_in_db = await get_proxies_by_url(db_rollback_session)
+
+    assert list(proxies_in_db) == [web_url]
+    assert proxies_in_db[web_url].source_id in {first_source_id, second_source_id}
+
+
+async def test_save_new_proxies_skips_proxy_already_saved_in_tg_scheme(
+    rest_client: AsyncClient,
+    db_rollback_session: AsyncSession,
+    sqlalchemy_model_factory_maker: Callable[
+        [type[SQLAlchemyFactory], AsyncSession], Awaitable[type[SQLAlchemyFactory]]
+    ],
+) -> None:
+    """
+    Старые записи с урлом в схеме `tg://` не задваиваются.
+
+    До нормализации в базу могли попасть урлы в любом виде, поэтому существующие записи
+    сравниваются с новыми урлами тоже в каноничном виде.
+    """
+    proxy_factory = await sqlalchemy_model_factory_maker(factory_cls=TelegramProxyFactory, session=db_rollback_session)
+    proxies_source_factory = await sqlalchemy_model_factory_maker(
+        factory_cls=TelegramProxiesSourceFactory, session=db_rollback_session
+    )
+
+    source = await proxies_source_factory.create_async(status=ProxySourceStatusEnum.enabled)
+    source_id = source.id
+
+    legacy_url = build_proxy_url(server="10.0.0.1", base=TG_PROXY_URL_BASE)
+
+    existing_proxy = await proxy_factory.create_async(
+        name="10.0.0.1", url=legacy_url, source_id=source_id, latency=42, status=ProxyStatusEnum.enabled
+    )
+    existing_proxy_id = existing_proxy.id
+
+    async with mocked_github_get_proxies_by_source({source.url: build_proxy_url(server="10.0.0.1")}):
+        response = await rest_client.post("/api/proxies")
+
+    assert response.status_code == status.HTTP_202_ACCEPTED, response.text
+
+    assert response.json()["error"] == {
+        "meta": {"message": None},
+        "type": "NoProxiesAddedError",
+        "title": "No proxies to add",
+    }
+
+    proxies_in_db = (await db_rollback_session.execute(select(TelegramProxy))).scalars().all()
+
+    # Старая запись остаётся как есть: сервис такие урлы просто пропускает, а не переписывает.
+    assert [(proxy.id, proxy.url) for proxy in proxies_in_db] == [(existing_proxy_id, legacy_url)]
+
+
+async def test_save_new_proxies_sends_normalized_urls_to_taskiq(
+    rest_client: AsyncClient,
+    db_rollback_session: AsyncSession,
+    sqlalchemy_model_factory_maker: Callable[
+        [type[SQLAlchemyFactory], AsyncSession], Awaitable[type[SQLAlchemyFactory]]
+    ],
+) -> None:
+    """Остаток урлов, уезжающий в отложенную таску, тоже нормализован — иначе он сохранился бы как `tg://`."""
+    proxies_source_factory = await sqlalchemy_model_factory_maker(
+        factory_cls=TelegramProxiesSourceFactory, session=db_rollback_session
+    )
+
+    source = await proxies_source_factory.create_async(status=ProxySourceStatusEnum.enabled)
+
+    total_proxies = CHUNK_SIZE_FOR_TESTS + PROXIES_OVER_CHUNK_SIZE
+    tg_urls = [build_proxy_url(server=f"10.0.0.{number}", base=TG_PROXY_URL_BASE) for number in range(total_proxies)]
+    expected_urls = [to_web_proxy_url(url) for url in tg_urls]
+
+    async with (
+        mocked_save_postgres_chunk_size(),
+        mocked_github_get_proxies_by_source({source.url: "\n".join(tg_urls)}),
+        mocked_get_host_latency_for_urls(default_latency=55),
+        mocked_taskiq_run() as mocked_taskiq,
+    ):
+        response = await rest_client.post("/api/proxies")
+
+    assert response.status_code == status.HTTP_201_CREATED, response.text
+
+    mocked_taskiq.assert_awaited_once()
+    assert mocked_taskiq.await_args.args[0] is save_proxies_to_database_task
+
+    deferred_urls = [item["url"] for item in deferred_source_urls(mocked_taskiq)]
+
+    assert len(deferred_urls) == PROXIES_OVER_CHUNK_SIZE
+    assert all(url.startswith(f"{PROXY_URL_BASE}?") for url in deferred_urls)
+
+    saved_urls = set(await get_proxies_by_url(db_rollback_session))
+
+    assert saved_urls | set(deferred_urls) == set(expected_urls)

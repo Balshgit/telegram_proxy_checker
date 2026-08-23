@@ -1,0 +1,333 @@
+/*
+ * Стили страницы источников прокси.
+ * Общие элементы (кнопки, формы, модалки, тосты) — в shared/ui/ui.css.
+ */
+
+.sources-page {
+  min-height: 100vh;
+  min-height: 100dvh;
+  padding: 48px 24px 64px;
+  background: linear-gradient(160deg, var(--bg-dark-1), var(--bg-dark-2) 55%, var(--bg-dark-3));
+  position: relative;
+  overflow-x: hidden;
+}
+
+.sources-page__glow {
+  position: absolute;
+  inset: -40% -20% auto -20%;
+  height: 90vh;
+  background:
+    radial-gradient(circle at 25% 30%, rgba(var(--azure-rgb), 0.14) 0%, transparent 55%),
+    radial-gradient(circle at 78% 15%, rgba(var(--azure-rgb), 0.08) 0%, transparent 45%);
+  pointer-events: none;
+}
+
+.sources-page__inner {
+  position: relative;
+  z-index: 1;
+  max-width: 1180px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+/* ── Header ─────────────────────────────────────────────── */
+
+.sources-header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 24px;
+  flex-wrap: wrap;
+}
+
+.sources-header__title {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  font-size: 30px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.sources-header__icon {
+  font-size: 30px;
+  filter: drop-shadow(0 0 16px rgba(var(--azure-rgb), 0.55));
+}
+
+.sources-header__subtitle {
+  margin-top: 8px;
+  font-size: 15px;
+  color: var(--text-secondary);
+}
+
+.sources-stats {
+  display: flex;
+  gap: 12px;
+}
+
+/* Карточка-счётчик: здесь она информационная, без клика */
+.source-stat {
+  min-width: 132px;
+  padding: 14px 18px;
+  border-radius: 14px;
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  backdrop-filter: blur(12px);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.source-stat--accent {
+  border-color: rgba(var(--azure-rgb), 0.35);
+  background: rgba(var(--azure-rgb), 0.1);
+}
+
+.source-stat__value {
+  font-size: 26px;
+  font-weight: 700;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+/* «из скольких» — тише основного числа */
+.source-stat__value-of {
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.source-stat__label {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+}
+
+/* ── Toolbar ────────────────────────────────────────────── */
+
+.sources-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding: 16px;
+  border-radius: 18px;
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  backdrop-filter: blur(12px);
+}
+
+.sources-toolbar .btn {
+  padding: 9px 14px;
+  font-size: 13px;
+  gap: 7px;
+  border-radius: 10px;
+}
+
+/* ── Список источников ──────────────────────────────────── */
+
+.sources-panel {
+  border-radius: 20px;
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  backdrop-filter: blur(14px);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.35);
+  overflow: hidden;
+}
+
+.sources-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.source-card {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 18px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  transition: background 0.18s ease;
+}
+
+.source-card:hover {
+  background: rgba(var(--azure-rgb), 0.07);
+}
+
+.source-card:last-child {
+  border-bottom: none;
+}
+
+.source-card__main {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.source-card__heading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.source-card__name {
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  overflow-wrap: anywhere;
+}
+
+.source-card__url {
+  color: var(--text-secondary);
+  text-decoration: none;
+  overflow-wrap: anywhere;
+  transition: color 0.15s ease;
+}
+
+.source-card__url:hover {
+  color: var(--azure-light);
+  text-decoration: underline;
+}
+
+.source-card__meta {
+  display: flex;
+  gap: 18px;
+  flex-wrap: wrap;
+  font-size: 12.5px;
+}
+
+.source-card__meta strong {
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.source-card__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+/* ── Responsive ─────────────────────────────────────────── */
+
+@media (max-width: 1024px) {
+  .sources-page {
+    padding: 32px 18px 56px;
+  }
+}
+
+@media (max-width: 900px) {
+  .sources-page {
+    padding: 20px calc(12px + env(safe-area-inset-right)) calc(40px + env(safe-area-inset-bottom))
+      calc(12px + env(safe-area-inset-left));
+  }
+
+  .sources-page__inner {
+    gap: 16px;
+    max-width: 760px;
+  }
+
+  .sources-header {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 16px;
+  }
+
+  .sources-header__title {
+    font-size: 22px;
+    gap: 10px;
+  }
+
+  .sources-header__icon {
+    font-size: 22px;
+  }
+
+  .sources-header__subtitle {
+    font-size: 13px;
+    margin-top: 6px;
+  }
+
+  .source-stat {
+    flex: 1;
+    min-width: 0;
+    padding: 12px 14px;
+  }
+
+  .source-stat__value {
+    font-size: 22px;
+  }
+
+  .source-stat__label {
+    font-size: 10px;
+    letter-spacing: 0.04em;
+  }
+
+  .sources-toolbar {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+    padding: 12px;
+    border-radius: 14px;
+  }
+
+  .sources-toolbar .btn {
+    width: 100%;
+    padding: 12px;
+  }
+
+  .sources-toolbar .segmented {
+    justify-content: space-between;
+  }
+
+  .sources-toolbar .segmented__item {
+    flex: 1;
+    padding: 9px 10px;
+  }
+
+  /* Панель распадается на отдельные карточки */
+  .sources-panel {
+    background: transparent;
+    border: none;
+    box-shadow: none;
+    backdrop-filter: none;
+    overflow: visible;
+  }
+
+  .sources-list {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .source-card {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+    padding: 14px;
+    border-radius: 16px;
+    border: 1px solid var(--glass-border);
+    background: var(--glass-bg);
+    backdrop-filter: blur(12px);
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.28);
+  }
+
+  .source-card:hover {
+    background: var(--glass-bg);
+  }
+
+  .source-card__meta {
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .source-card__actions {
+    justify-content: flex-end;
+  }
+}

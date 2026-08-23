@@ -1,0 +1,930 @@
+/*
+ * Общие элементы интерфейса: кнопки, иконки, меню «⋯», фильтры, состояния,
+ * модалки и тосты. Всё, что используется больше чем одной страницей, живёт здесь;
+ * стили конкретной страницы — в её собственном css рядом с компонентом.
+ *
+ * Подключается один раз в main.tsx до стилей страниц, чтобы страничные правила
+ * могли переопределять общие при одинаковой специфичности.
+ */
+
+/* ── Buttons ────────────────────────────────────────────── */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  padding: 11px 20px;
+  border: 1px solid transparent;
+  border-radius: 12px;
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  cursor: pointer;
+  white-space: nowrap;
+  text-decoration: none;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+  transition: transform 0.15s ease, box-shadow 0.2s ease, background 0.2s ease, border-color 0.2s ease;
+}
+
+.btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  transform: none !important;
+  box-shadow: none !important;
+}
+
+.btn:not(:disabled):hover {
+  transform: translateY(-1px);
+}
+
+.btn:not(:disabled):active {
+  transform: translateY(0);
+}
+
+.btn--blue {
+  background: linear-gradient(135deg, var(--azure), var(--azure-dark));
+  box-shadow: 0 6px 20px rgba(var(--azure-rgb), 0.35);
+}
+
+.btn--blue:not(:disabled):hover {
+  background: linear-gradient(135deg, var(--azure-light), var(--azure));
+  box-shadow: 0 10px 26px rgba(var(--azure-rgb), 0.45);
+}
+
+.btn--red {
+  background: linear-gradient(135deg, #ff4d4f, #c9282b);
+  box-shadow: 0 6px 20px rgba(255, 77, 79, 0.32);
+}
+
+.btn--red:not(:disabled):hover {
+  background: linear-gradient(135deg, #ff6b6d, #e03335);
+  box-shadow: 0 10px 26px rgba(255, 77, 79, 0.42);
+}
+
+.btn--green {
+  background: linear-gradient(135deg, #22c55e, #15803d);
+  box-shadow: 0 6px 18px rgba(34, 197, 94, 0.3);
+  text-decoration: none;
+}
+
+.btn--green:not(:disabled):hover {
+  background: linear-gradient(135deg, #4ade80, #16a34a);
+  box-shadow: 0 10px 24px rgba(34, 197, 94, 0.42);
+}
+
+/* Иконка внутри кнопки не сжимается, а текст при нехватке места обрезается многоточием */
+.btn__icon {
+  flex-shrink: 0;
+  line-height: 1;
+}
+
+.btn__text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.btn--sm {
+  padding: 7px 14px;
+  font-size: 13px;
+  gap: 6px;
+  border-radius: 10px;
+}
+
+.btn--ghost {
+  background: var(--glass-bg);
+  border-color: var(--glass-border);
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+.btn--ghost:not(:disabled):hover {
+  background: rgba(var(--azure-rgb), 0.12);
+  border-color: rgba(var(--azure-rgb), 0.35);
+  color: var(--text-primary);
+}
+
+.btn__spinner {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.35);
+  border-top-color: #fff;
+  animation: spin 0.7s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border-radius: 9px;
+  border: 1px solid var(--glass-border);
+  background: var(--glass-bg);
+  color: var(--text-secondary);
+  font-family: inherit;
+  font-size: 14px;
+  cursor: pointer;
+  flex-shrink: 0;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+  transition: all 0.2s ease;
+}
+
+.icon-btn:not(:disabled):hover {
+  color: var(--text-primary);
+  border-color: rgba(var(--azure-rgb), 0.45);
+  background: rgba(var(--azure-rgb), 0.14);
+}
+
+.icon-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.icon-btn__glyph {
+  display: inline-block;
+  line-height: 1;
+}
+
+.icon-btn--refresh {
+  font-size: 16px;
+}
+
+.icon-btn--refresh:not(:disabled):hover {
+  color: #4ade80;
+  border-color: rgba(74, 222, 128, 0.45);
+  background: rgba(74, 222, 128, 0.14);
+}
+
+.icon-btn--refresh.is-loading {
+  opacity: 1;
+  color: var(--text-primary);
+  border-color: rgba(var(--azure-rgb), 0.45);
+  background: rgba(var(--azure-rgb), 0.14);
+}
+
+.icon-btn--refresh.is-loading .icon-btn__glyph {
+  animation: spin 0.8s linear infinite;
+}
+
+/* Редактирование строки: нейтральная иконка, акцент проступает при наведении */
+.icon-btn--edit:not(:disabled):hover {
+  color: var(--azure-light);
+  border-color: rgba(var(--azure-rgb), 0.45);
+  background: rgba(var(--azure-rgb), 0.14);
+}
+
+/* Удаление строки: нейтральная иконка, красный проступает только при наведении */
+.icon-btn--danger {
+  font-size: 14px;
+}
+
+.icon-btn--danger:not(:disabled):hover {
+  color: #ff6b6d;
+  border-color: rgba(255, 77, 79, 0.45);
+  background: rgba(255, 77, 79, 0.14);
+}
+
+.icon-btn--danger.is-loading {
+  opacity: 1;
+  color: var(--text-primary);
+  border-color: rgba(255, 77, 79, 0.45);
+  background: rgba(255, 77, 79, 0.14);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .icon-btn--refresh.is-loading .icon-btn__glyph {
+    animation-duration: 2s;
+  }
+}
+
+/* ── Меню «⋯» ───────────────────────────────────────────── */
+
+/*
+ * Сюда прячутся редкие и опасные действия (удалить все прокси):
+ * кнопка выглядит как обычная иконка и не перетягивает внимание.
+ */
+.more-menu {
+  position: relative;
+  display: inline-flex;
+}
+
+.icon-btn--more {
+  width: 34px;
+  height: 34px;
+  font-size: 18px;
+  border-radius: 10px;
+  /* Приглушена сильнее соседей — это «прочее», а не основное действие */
+  opacity: 0.7;
+}
+
+.icon-btn--more:not(:disabled):hover,
+.icon-btn--more.is-open {
+  opacity: 1;
+}
+
+.more-menu__popup {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 30;
+  min-width: 208px;
+  padding: 6px;
+  border-radius: 12px;
+  border: 1px solid var(--glass-border);
+  background: rgba(14, 19, 33, 0.98);
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.45);
+}
+
+.more-menu__item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 12px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.more-menu__item:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.more-menu__item--danger {
+  color: #ff8a8c;
+}
+
+.more-menu__item--danger:not(:disabled):hover {
+  background: rgba(255, 77, 79, 0.16);
+  color: #ff6b6d;
+}
+
+.more-menu__icon {
+  font-size: 14px;
+  line-height: 1;
+}
+
+/* ── Filters ────────────────────────────────────────────── */
+
+.segmented {
+  display: inline-flex;
+  padding: 3px;
+  gap: 3px;
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.25);
+  border: 1px solid var(--glass-border);
+}
+
+.segmented__item {
+  padding: 6px 11px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-muted);
+  font-family: inherit;
+  font-size: 12.5px;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.segmented__item:hover:not(:disabled) {
+  color: var(--text-primary);
+}
+
+.segmented__item.is-active {
+  background: rgba(var(--azure-rgb), 0.22);
+  color: var(--text-primary);
+  box-shadow: inset 0 0 0 1px rgba(var(--azure-rgb), 0.4);
+}
+
+.segmented__item:disabled {
+  cursor: not-allowed;
+}
+
+.page-size {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.page-size select {
+  padding: 7px 8px;
+  border-radius: 9px;
+  border: 1px solid var(--glass-border);
+  background: rgba(0, 0, 0, 0.25);
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.page-size select:focus-visible {
+  outline: 2px solid rgba(var(--azure-rgb), 0.6);
+}
+
+/* ── Текст и бейджи ─────────────────────────────────────── */
+
+.mono {
+  font-family: 'JetBrains Mono', 'SF Mono', Menlo, Consolas, monospace;
+  font-size: 13px;
+}
+
+.muted {
+  color: var(--text-muted);
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 11px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+
+.badge__dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.badge--enabled {
+  color: #4ade80;
+  background: rgba(74, 222, 128, 0.12);
+  border-color: rgba(74, 222, 128, 0.3);
+}
+
+.badge--disabled {
+  color: #f87171;
+  background: rgba(248, 113, 113, 0.12);
+  border-color: rgba(248, 113, 113, 0.3);
+}
+
+.badge--neutral {
+  color: var(--text-secondary);
+  background: rgba(255, 255, 255, 0.07);
+  border-color: var(--glass-border);
+}
+
+/* ── Статус: редактируемый дропдаун ─────────────────────── */
+
+.status-select {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 30px 0 11px;
+  height: 32px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  transition: border-color 0.2s ease, background 0.2s ease, box-shadow 0.2s ease;
+}
+
+.status-select__dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+  flex-shrink: 0;
+}
+
+.status-select__label {
+  pointer-events: none;
+}
+
+/*
+ * Нативный select растянут на всю «пилюлю» и полностью прозрачен:
+ * так вся плашка становится тап-таргетом (важно для мобильных),
+ * а видимый текст и стрелку рисуем сами.
+ */
+.status-select__field {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  appearance: none;
+  -webkit-appearance: none;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font-family: inherit;
+  font-size: 16px; /* 16px, чтобы iOS не зумил страницу при открытии списка */
+  padding: 0;
+  margin: 0;
+  cursor: pointer;
+  outline: none;
+}
+
+.status-select__field:disabled {
+  cursor: not-allowed;
+}
+
+/* Выпадающий список рисуется системой — задаём читаемые цвета для тёмной темы */
+.status-select__field option {
+  background: var(--bg-dark-3, #10141f);
+  color: #fff;
+  font-weight: 500;
+}
+
+.status-select__caret {
+  position: absolute;
+  right: 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  opacity: 0.75;
+  pointer-events: none;
+}
+
+.status-select__caret .btn__spinner {
+  width: 11px;
+  height: 11px;
+  border-width: 2px;
+  border-color: currentColor;
+  border-top-color: transparent;
+}
+
+.status-select:focus-within {
+  box-shadow: 0 0 0 2px rgba(var(--azure-rgb), 0.45);
+}
+
+.status-select--enabled {
+  color: #4ade80;
+  background: rgba(74, 222, 128, 0.12);
+  border-color: rgba(74, 222, 128, 0.3);
+}
+
+.status-select--enabled:hover {
+  background: rgba(74, 222, 128, 0.2);
+}
+
+.status-select--disabled {
+  color: #f87171;
+  background: rgba(248, 113, 113, 0.12);
+  border-color: rgba(248, 113, 113, 0.3);
+}
+
+.status-select--disabled:hover {
+  background: rgba(248, 113, 113, 0.2);
+}
+
+.status-select.is-busy {
+  opacity: 0.75;
+}
+
+.status-select:has(.status-select__field:disabled) {
+  opacity: 0.55;
+}
+
+/* ── States ─────────────────────────────────────────────── */
+
+.state {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 40px 28px;
+}
+
+.state__icon {
+  font-size: 34px;
+}
+
+.state__title {
+  font-size: 16px;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.state__text {
+  font-size: 14px;
+  color: var(--text-secondary);
+}
+
+.state--error {
+  background: rgba(248, 113, 113, 0.07);
+  border-left: 3px solid #f87171;
+}
+
+.state--error .state__title {
+  color: #f87171;
+}
+
+.state--empty {
+  justify-content: center;
+  text-align: left;
+}
+
+.skeleton-list {
+  padding: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.skeleton-row {
+  height: 46px;
+  border-radius: 10px;
+  background: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0.04) 25%,
+    rgba(255, 255, 255, 0.09) 50%,
+    rgba(255, 255, 255, 0.04) 75%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.4s ease-in-out infinite;
+}
+
+@keyframes shimmer {
+  from {
+    background-position: 200% 0;
+  }
+  to {
+    background-position: -200% 0;
+  }
+}
+
+/* ── Modal ──────────────────────────────────────────────── */
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgba(5, 8, 16, 0.7);
+  backdrop-filter: blur(4px);
+  animation: fade-in 0.18s ease;
+  overflow-y: auto;
+}
+
+.modal {
+  width: 100%;
+  max-width: 420px;
+  padding: 28px;
+  border-radius: 18px;
+  background: linear-gradient(150deg, var(--bg-dark-2), var(--bg-dark-3));
+  border: 1px solid var(--glass-border);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.6);
+  animation: pop-in 0.2s ease;
+}
+
+/* Модалка с формой: полей больше, поэтому шире обычной */
+.modal--wide {
+  max-width: 520px;
+}
+
+.modal__title {
+  font-size: 19px;
+  font-weight: 700;
+  margin-bottom: 10px;
+}
+
+.modal__text {
+  font-size: 14px;
+  color: var(--text-secondary);
+  line-height: 1.55;
+  margin-bottom: 24px;
+}
+
+.modal__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes pop-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.97);
+  }
+}
+
+/* ── Формы ──────────────────────────────────────────────── */
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.field__label {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.field__control {
+  padding: 11px 13px;
+  border-radius: 10px;
+  border: 1px solid var(--glass-border);
+  background: rgba(0, 0, 0, 0.28);
+  color: var(--text-primary);
+  font-family: inherit;
+  /* 16px, чтобы iOS не зумил страницу при фокусе */
+  font-size: 16px;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.field__control::placeholder {
+  color: var(--text-muted);
+}
+
+.field__control:focus {
+  outline: none;
+  border-color: rgba(var(--azure-rgb), 0.55);
+  box-shadow: 0 0 0 2px rgba(var(--azure-rgb), 0.25);
+}
+
+.field__control:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+select.field__control option {
+  background: var(--bg-dark-3, #10141f);
+  color: #fff;
+}
+
+.field__hint {
+  font-size: 12px;
+  color: var(--text-muted);
+  line-height: 1.45;
+}
+
+.field__error {
+  font-size: 12.5px;
+  color: #ff8a8c;
+  line-height: 1.45;
+}
+
+.field--invalid .field__control {
+  border-color: rgba(255, 77, 79, 0.55);
+}
+
+/* ── Toasts ─────────────────────────────────────────────── */
+
+.toasts {
+  position: fixed;
+  right: 20px;
+  bottom: 20px;
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.toast {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 13px 18px;
+  border-radius: 12px;
+  font-size: 14px;
+  font-weight: 500;
+  max-width: 380px;
+  background: var(--bg-dark-3);
+  border: 1px solid var(--glass-border);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+  animation: slide-in 0.22s ease;
+}
+
+.toast__icon {
+  flex-shrink: 0;
+  line-height: 1.4;
+}
+
+.toast__body {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.toast__text {
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+/* Пояснение под заголовком тоста — тише основного текста */
+.toast__hint {
+  font-size: 12.5px;
+  font-weight: 400;
+  line-height: 1.45;
+  color: var(--text-secondary);
+  overflow-wrap: anywhere;
+}
+
+.toast--success {
+  border-left: 3px solid #4ade80;
+}
+
+.toast--success .toast__icon {
+  color: #4ade80;
+}
+
+.toast--error {
+  border-left: 3px solid #f87171;
+}
+
+.toast--error .toast__icon {
+  color: #f87171;
+}
+
+/*
+ * Info — для штатных исходов вроде «новых прокси не нашлось»:
+ * пользователь ничего не сломал, поэтому нейтральный синий, а не красный.
+ */
+.toast--info {
+  border-left: 3px solid var(--azure);
+}
+
+.toast--info .toast__icon {
+  color: var(--azure-light);
+}
+
+@keyframes slide-in {
+  from {
+    opacity: 0;
+    transform: translateX(24px);
+  }
+}
+
+/* ── Навигация между страницами ─────────────────────────── */
+
+.app-nav {
+  display: inline-flex;
+  gap: 4px;
+  padding: 4px;
+  border-radius: 12px;
+  background: rgba(0, 0, 0, 0.25);
+  border: 1px solid var(--glass-border);
+}
+
+.app-nav__item {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  border: none;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--text-muted);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.app-nav__item:hover {
+  color: var(--text-primary);
+}
+
+.app-nav__item.is-active {
+  background: rgba(var(--azure-rgb), 0.22);
+  color: var(--text-primary);
+  box-shadow: inset 0 0 0 1px rgba(var(--azure-rgb), 0.4);
+}
+
+/* ── Responsive ─────────────────────────────────────────── */
+
+@media (max-width: 900px) {
+  .icon-btn {
+    width: 44px;
+    height: 44px;
+    flex-shrink: 0;
+    font-size: 16px;
+  }
+
+  .icon-btn--refresh {
+    font-size: 20px;
+  }
+
+  .status-select {
+    height: 38px;
+    padding: 0 32px 0 13px;
+    font-size: 13px;
+  }
+
+  .state {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 28px 18px;
+    border-radius: 16px;
+    background: var(--glass-bg);
+    border: 1px solid var(--glass-border);
+  }
+
+  .state--error {
+    background: rgba(248, 113, 113, 0.09);
+  }
+
+  .state .btn--ghost {
+    width: 100%;
+  }
+
+  .skeleton-list {
+    padding: 0;
+  }
+
+  .skeleton-row {
+    height: 96px;
+    border-radius: 16px;
+  }
+
+  .modal {
+    padding: 22px;
+    border-radius: 16px;
+  }
+
+  .modal__actions {
+    flex-direction: column-reverse;
+  }
+
+  .modal__actions .btn {
+    width: 100%;
+    padding: 13px;
+  }
+
+  .toasts {
+    left: calc(12px + env(safe-area-inset-left));
+    right: calc(12px + env(safe-area-inset-right));
+    bottom: calc(12px + env(safe-area-inset-bottom));
+  }
+
+  .toast {
+    width: 100%;
+    max-width: none;
+  }
+
+  .app-nav {
+    width: 100%;
+  }
+
+  .app-nav__item {
+    flex: 1;
+    justify-content: center;
+    padding: 10px 8px;
+  }
+}
+
+/* На тач-устройствах не показываем hover-подъём кнопок */
+@media (hover: none) {
+  .btn:not(:disabled):hover {
+    transform: none;
+  }
+}

@@ -1,7 +1,6 @@
 from dataclasses import dataclass
 from itertools import chain
 
-from httpx import URL
 from sqlakeyset import Page
 
 from app.core.concurrency import run_async
@@ -12,7 +11,7 @@ from app.core.proxies.exceptions import NoProxiesAddedException
 from app.core.proxies.models import TelegramProxy
 from app.core.proxies.repositories import ProxyRepository
 from app.core.proxies.tasks import save_proxies_to_database_task, update_proxies_in_database_task
-from app.core.proxies.utils import collect_source_ids
+from app.core.proxies.utils import collect_source_ids, to_web_proxy_url
 from app.core.proxies_sources.constants import ProxySourceStatusEnum
 from app.core.proxies_sources.services import ProxySourceService
 from app.infra.gateways.github_gateway import GithubGateway
@@ -81,14 +80,20 @@ class ProxyService:
         new_proxies_url_lists = list(chain.from_iterable(await run_async(*coros))) if coros else []
 
         existing_proxies = await self.repository.get_all_proxies()
-        existing_proxies_urls = {URL(proxy.url) for proxy in existing_proxies}
+
+        existing_proxies_urls = {to_web_proxy_url(proxy.url) for proxy in existing_proxies}
+
+        new_proxies_to_ping = [
+            ProxySourceToPingDTO(source_id=proxy_to_ping.source_id, url=to_web_proxy_url(proxy_to_ping.url))
+            for proxy_to_ping in new_proxies_url_lists
+        ]
 
         # Дедупликация идёт по урлу, а не по паре (source_id, url): один и тот же урл,
         # отданный несколькими источниками, должен попасть в базу ровно один раз.
         urls_for_ping = list(
             {
                 proxy_to_ping.url: proxy_to_ping
-                for proxy_to_ping in new_proxies_url_lists
+                for proxy_to_ping in new_proxies_to_ping
                 if proxy_to_ping.url not in existing_proxies_urls
             }.values()
         )
