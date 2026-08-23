@@ -230,14 +230,20 @@
   position: relative;
   display: inline-flex;
   align-items: stretch;
+  min-width: 0;
 }
 
+/* Место в первую очередь достаётся подписи, стрелка занимает ровно свою ширину. */
 .proxies-toolbar .split-btn__main {
+  flex: 1 1 auto;
+  min-width: 0;
   border-top-right-radius: 0;
   border-bottom-right-radius: 0;
 }
 
 .proxies-toolbar .split-btn__toggle {
+  flex: 0 0 auto;
+  width: auto;
   padding: 9px 10px;
   border-top-left-radius: 0;
   border-bottom-left-radius: 0;
@@ -763,11 +769,17 @@
     display: contents;
   }
 
-  .proxies-toolbar__actions .btn:nth-child(1) {
+  /*
+   * Раскладка ряда действий задана классами, а не `:nth-child`: «Добавить» лежит
+   * внутри split-кнопки, и позиционный отсчёт съезжал бы на её внутренние кнопки.
+   */
+  .proxies-toolbar .split-btn {
     grid-area: 1 / 1;
+    width: 100%;
   }
 
-  .proxies-toolbar__actions .btn:nth-child(2) {
+  /* Единственная кнопка-ребёнок группы действий — «Обновить». */
+  .proxies-toolbar__actions > .btn {
     grid-area: 1 / 2;
   }
 
@@ -778,9 +790,52 @@
 
   .proxies-toolbar .btn {
     width: 100%;
+    /* Комфортный тап-таргет: не меньше рекомендованных 44px по высоте. */
+    min-height: 44px;
     padding: 11px 12px;
     font-size: 13px;
     gap: 6px;
+  }
+
+  /*
+   * Стрелка не должна отъедать место у подписи: фиксированная ширина тап-таргета,
+   * всё остальное достаётся кнопке «Добавить прокси».
+   */
+  .proxies-toolbar .split-btn__toggle {
+    flex: 0 0 44px;
+    width: 44px;
+    padding: 11px 0;
+  }
+
+  .split-btn__caret {
+    font-size: 13px;
+  }
+
+  /*
+   * Выпадашка выходит за пределы своей колонки, но не за пределы экрана:
+   * ширина ограничена и вьюпортом (минус поля страницы и тулбара), и разумным максимумом.
+   */
+  .source-picker {
+    left: 0;
+    width: min(calc(100vw - 48px), 340px);
+    max-width: none;
+    padding: 14px;
+  }
+
+  .source-picker__item {
+    padding: 11px 10px;
+    font-size: 14px;
+    gap: 12px;
+  }
+
+  .source-picker__item input {
+    width: 18px;
+    height: 18px;
+  }
+
+  /* Списку источников хватает половины экрана — под ним ещё кнопка подтверждения. */
+  .source-picker__list {
+    max-height: 46vh;
   }
 
   .proxies-toolbar .segmented {
@@ -1036,6 +1091,17 @@
     column-gap: 6px;
   }
 
+  /* Стрелка ужимается, но остаётся нажимаемой; освободившееся место — подписи «Добавить». */
+  .proxies-toolbar .split-btn__toggle {
+    flex: 0 0 36px;
+    width: 36px;
+  }
+
+  /* Иконка «＋» дублирует смысл подписи, поэтому на узких экранах уступает ей место. */
+  .proxies-toolbar .split-btn__main .btn__icon {
+    display: none;
+  }
+
   .proxies-toolbar .btn {
     padding: 11px 5px;
     font-size: 11.5px;
@@ -1073,6 +1139,11 @@
 
   .proxies-toolbar .btn__icon {
     font-size: 15px;
+  }
+
+  /* Подписи скрыты — иконку в «Добавить» возвращаем, иначе кнопка осталась бы пустой. */
+  .proxies-toolbar .split-btn__main .btn__icon {
+    display: inline;
   }
 }
 

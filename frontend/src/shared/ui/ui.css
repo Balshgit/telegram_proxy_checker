@@ -942,6 +942,13 @@ select.field__control option {
     flex: 1;
     justify-content: center;
     padding: 10px 8px;
+    min-height: 44px;
+  }
+
+  /* Бейдж-ссылка на телефоне — это тап-таргет, поэтому крупнее обычного бейджа. */
+  .badge--link {
+    padding: 8px 13px;
+    font-size: 12.5px;
   }
 }
 
