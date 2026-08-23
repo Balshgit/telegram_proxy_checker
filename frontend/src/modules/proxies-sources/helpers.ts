@@ -22,6 +22,41 @@ export const STATUS_FILTERS: { value: StatusFilter; label: string }[] = [
   { value: 'disabled', label: 'Выключенные' },
 ]
 
+/* ------------------------------------------------------------------ *
+ * Фильтр в адресной строке
+ * ------------------------------------------------------------------ */
+
+/**
+ * Имя query-параметра фильтра на `/proxies/sources`.
+ *
+ * Не просто `status`, как в GET /api/proxies/sources: на соседней странице
+ * проксей уже есть `proxy_status`, и одинаковый префикс делает оба адреса
+ * самоописательными — видно, чей это статус.
+ */
+export const SOURCES_STATUS_QUERY_KEY = 'source_status'
+
+/** Значение при заходе на голый `/proxies/sources`. В адрес не пишется. */
+export const DEFAULT_SOURCES_STATUS: StatusFilter = 'all'
+
+/** Разбирает адрес в фильтр. Мусор и опечатки молча заменяются значением по умолчанию. */
+export function parseSourcesStatus(search: string | URLSearchParams): StatusFilter {
+  const params = typeof search === 'string' ? new URLSearchParams(search) : search
+  const raw = params.get(SOURCES_STATUS_QUERY_KEY)
+
+  return STATUS_FILTERS.some((filter) => filter.value === raw)
+    ? (raw as StatusFilter)
+    : DEFAULT_SOURCES_STATUS
+}
+
+/** Собирает query-строку. Значение по умолчанию опускаем, чтобы адрес оставался коротким. */
+export function serializeSourcesQuery(status: StatusFilter): string {
+  const params = new URLSearchParams()
+  if (status !== DEFAULT_SOURCES_STATUS) {
+    params.set(SOURCES_STATUS_QUERY_KEY, status)
+  }
+  return params.toString()
+}
+
 /**
  * Вендор определяет, как бекенд разбирает ответ источника:
  * `GitHub` — сырой файл в репозитории, `external` — произвольный внешний адрес.

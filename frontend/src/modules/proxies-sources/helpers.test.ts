@@ -4,9 +4,12 @@ import { SOURCE_NAME_MAX_LENGTH } from './api'
 import type { ProxySource } from './api'
 import {
   changedFields,
+  DEFAULT_SOURCES_STATUS,
   formValuesFrom,
   hasErrors,
   isHttpUrl,
+  parseSourcesStatus,
+  serializeSourcesQuery,
   sourceLabel,
   validateSourceForm,
 } from './helpers'
@@ -22,6 +25,30 @@ const source: ProxySource = {
   proxies_count: 10,
   active_proxies_count: 3,
 }
+
+describe('фильтр в адресной строке', () => {
+  it('читает статус из адреса', () => {
+    expect(parseSourcesStatus('?source_status=enabled')).toBe('enabled')
+    expect(parseSourcesStatus(new URLSearchParams('source_status=disabled'))).toBe('disabled')
+  })
+
+  it('пустой и мусорный адрес дают значение по умолчанию', () => {
+    expect(parseSourcesStatus('')).toBe(DEFAULT_SOURCES_STATUS)
+    expect(parseSourcesStatus('?source_status=broken')).toBe(DEFAULT_SOURCES_STATUS)
+    expect(parseSourcesStatus('?utm_source=telegram')).toBe(DEFAULT_SOURCES_STATUS)
+  })
+
+  it('значение по умолчанию в адрес не пишется', () => {
+    expect(serializeSourcesQuery(DEFAULT_SOURCES_STATUS)).toBe('')
+    expect(serializeSourcesQuery('enabled')).toBe('source_status=enabled')
+  })
+
+  it('разбор и сборка обратны друг другу', () => {
+    expect(serializeSourcesQuery(parseSourcesStatus('?source_status=disabled'))).toBe(
+      'source_status=disabled',
+    )
+  })
+})
 
 describe('sourceLabel', () => {
   it('использует название, когда оно есть', () => {

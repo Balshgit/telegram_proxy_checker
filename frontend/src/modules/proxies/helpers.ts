@@ -118,6 +118,119 @@ export const STATUS_FILTERS: { value: StatusFilter; label: string }[] = [
   { value: 'disabled', label: 'Неактивные' },
 ]
 
+/* ------------------------------------------------------------------ *
+ * Состояние списка в адресной строке
+ * ------------------------------------------------------------------ */
+
+/**
+ * Что из состояния страницы живёт в query-строке адреса.
+ *
+ * Смысл — в переносимости: такую ссылку можно скинуть, положить в закладки,
+ * открыть в новой вкладке и поправить прямо в адресной строке браузера.
+ */
+export interface ProxiesQuery {
+  limit: number
+  offset: number
+  status: StatusFilter
+  sort: SortState
+}
+
+/**
+ * Имена параметров намеренно совпадают с query GET /api/proxies:
+ * адрес страницы читается как запрос к API, и запомнить нужно один набор имён,
+ * а не два. Отсюда `proxy_status`, а не просто `status`.
+ */
+export const PROXIES_QUERY_KEYS = {
+  limit: 'limit',
+  offset: 'offset',
+  status: 'proxy_status',
+  orderBy: 'order_by',
+} as const
+
+/** Состояние при заходе на голый `/proxies`. Эти значения в адрес не пишутся. */
+export const DEFAULT_PROXIES_QUERY: ProxiesQuery = {
+  limit: PAGE_SIZE_OPTIONS[0],
+  offset: 0,
+  status: 'enabled',
+  sort: DEFAULT_SORT,
+}
+
+function toParams(search: string | URLSearchParams): URLSearchParams {
+  return typeof search === 'string' ? new URLSearchParams(search) : search
+}
+
+/** Размер страницы — только из списка вариантов: произвольное число бекенд отдаст, а выпадашка показать не сможет. */
+function parseLimit(raw: string | null): number {
+  const value = Number(raw)
+  return PAGE_SIZE_OPTIONS.includes(value) ? value : DEFAULT_PROXIES_QUERY.limit
+}
+
+/**
+ * Смещение округляем вниз до кратного `limit`: пагинация оперирует номерами
+ * страниц, и «половинчатый» offset из адреса разъехался бы с подсветкой страницы.
+ */
+function parseOffset(raw: string | null, limit: number): number {
+  const value = Number(raw)
+  if (!Number.isFinite(value) || value <= 0) {
+    return 0
+  }
+  const offset = Math.floor(value)
+  return offset - (offset % limit)
+}
+
+function parseStatus(raw: string | null): StatusFilter {
+  return STATUS_FILTERS.some((filter) => filter.value === raw)
+    ? (raw as StatusFilter)
+    : DEFAULT_PROXIES_QUERY.status
+}
+
+function parseSort(raw: string | null): SortState {
+  return SORT_OPTIONS.some((option) => option.value === raw)
+    ? fromOrderBy(raw as ProxyOrderBy)
+    : DEFAULT_PROXIES_QUERY.sort
+}
+
+/** Разбирает адрес в состояние страницы. Мусор и опечатки молча заменяются значениями по умолчанию. */
+export function parseProxiesQuery(search: string | URLSearchParams): ProxiesQuery {
+  const params = toParams(search)
+  const limit = parseLimit(params.get(PROXIES_QUERY_KEYS.limit))
+
+  return {
+    limit,
+    offset: parseOffset(params.get(PROXIES_QUERY_KEYS.offset), limit),
+    status: parseStatus(params.get(PROXIES_QUERY_KEYS.status)),
+    sort: parseSort(params.get(PROXIES_QUERY_KEYS.orderBy)),
+  }
+}
+
+/**
+ * Собирает query-строку из состояния.
+ *
+ * Значения по умолчанию опускаем: на первой странице с обычными настройками
+ * адрес остаётся коротким `/proxies`, а в строке видно ровно то, что пользователь
+ * поменял руками.
+ */
+export function serializeProxiesQuery(query: ProxiesQuery): string {
+  const params = new URLSearchParams()
+
+  if (query.limit !== DEFAULT_PROXIES_QUERY.limit) {
+    params.set(PROXIES_QUERY_KEYS.limit, String(query.limit))
+  }
+  if (query.offset !== DEFAULT_PROXIES_QUERY.offset) {
+    params.set(PROXIES_QUERY_KEYS.offset, String(query.offset))
+  }
+  if (query.status !== DEFAULT_PROXIES_QUERY.status) {
+    params.set(PROXIES_QUERY_KEYS.status, query.status)
+  }
+
+  const orderBy = toOrderBy(query.sort)
+  if (orderBy !== toOrderBy(DEFAULT_PROXIES_QUERY.sort)) {
+    params.set(PROXIES_QUERY_KEYS.orderBy, orderBy)
+  }
+
+  return params.toString()
+}
+
 /**
  * Штатный ответ бекенда «нечего добавлять»: в источниках не нашлось ни одной
  * прокси, которой ещё нет в базе. Это не ошибка, поэтому показываем спокойный

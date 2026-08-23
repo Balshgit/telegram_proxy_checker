@@ -126,6 +126,8 @@ function setupUser() {
 
 beforeEach(() => {
   stubClipboard()
+  // Состояние списка живёт в адресе, поэтому каждый тест начинает с чистого `/proxies`.
+  window.history.replaceState({}, '', '/proxies')
 
   vi.mocked(fetchProxies).mockResolvedValue(pageResult())
   vi.mocked(fetchProxy).mockResolvedValue(proxyOne)
@@ -582,6 +584,80 @@ describe('сортировка', () => {
     await user.click(screen.getByRole('button', { name: /Пинг/u }))
 
     await waitFor(() => expect(lastFetchArgs()).toMatchObject({ offset: 0, orderBy: 'latency_desc' }))
+  })
+})
+
+describe('состояние в адресной строке', () => {
+  /** Открывает страницу по конкретному адресу и дожидается первой порции данных. */
+  async function renderAt(url: string) {
+    window.history.replaceState({}, '', url)
+    return renderLoadedPage()
+  }
+
+  it('на первой странице с настройками по умолчанию адрес остаётся чистым', async () => {
+    await renderLoadedPage()
+
+    expect(window.location.search).toBe('')
+  })
+
+  it('переход по страницам пишет offset в адрес', async () => {
+    const user = await renderLoadedPage()
+
+    await user.click(screen.getByLabelText('Страница 3'))
+
+    await waitFor(() => expect(window.location.search).toBe('?offset=20'))
+  })
+
+  it('фильтр, размер страницы и сортировка складываются в один адрес', async () => {
+    const user = await renderLoadedPage()
+
+    await user.selectOptions(screen.getByLabelText('Элементов на странице'), '25')
+    await user.click(screen.getByRole('button', { name: 'Все' }))
+    await user.selectOptions(screen.getByLabelText('Сортировка списка'), 'created_at_desc')
+
+    await waitFor(() =>
+      expect(window.location.search).toBe('?limit=25&proxy_status=all&order_by=created_at_desc'),
+    )
+  })
+
+  it('прямая ссылка с параметрами сразу уходит в запрос к бекенду', async () => {
+    await renderAt('/proxies?limit=25&offset=50&proxy_status=disabled&order_by=created_at_desc')
+
+    expect(lastFetchArgs()).toMatchObject({
+      limit: 25,
+      offset: 50,
+      status: 'disabled',
+      orderBy: 'created_at_desc',
+    })
+    // Адрес валидный — переписывать его не за чем.
+    expect(window.location.search).toBe(
+      '?limit=25&offset=50&proxy_status=disabled&order_by=created_at_desc',
+    )
+  })
+
+  it('прямая ссылка подсвечивает нужную страницу пагинации', async () => {
+    await renderAt('/proxies?offset=20')
+
+    expect(screen.getByLabelText('Страница 3')).toHaveAttribute('aria-current', 'page')
+  })
+
+  it('мусор и значения по умолчанию из адреса вычищаются', async () => {
+    await renderAt('/proxies?limit=7&offset=abc&proxy_status=broken&utm_source=telegram')
+
+    await waitFor(() => expect(window.location.search).toBe(''))
+    expect(lastFetchArgs()).toMatchObject({ limit: 10, offset: 0, status: 'enabled' })
+  })
+
+  it('кнопка «назад» возвращает предыдущую страницу списка', async () => {
+    const user = await renderLoadedPage()
+
+    await user.click(screen.getByLabelText('Следующая страница'))
+    await waitFor(() => expect(window.location.search).toBe('?offset=10'))
+
+    window.history.back()
+
+    await waitFor(() => expect(window.location.search).toBe(''))
+    await waitFor(() => expect(lastFetchArgs()).toMatchObject({ offset: 0 }))
   })
 })
 

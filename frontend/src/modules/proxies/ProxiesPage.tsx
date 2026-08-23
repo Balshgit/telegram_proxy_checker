@@ -1,7 +1,8 @@
 import type { ReactNode } from 'react'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { ApiRequestError } from '../../shared/api/client'
+import { normalizeSearch, setSearch, useSearch } from '../../shared/router'
 import { ConfirmDialog } from '../../shared/ui/Modal'
 import { Toasts, useToasts } from '../../shared/ui/Toasts'
 import { copyToClipboard, formatDate, truncate } from '../../shared/ui/format'
@@ -29,7 +30,6 @@ import {
   buildPageItems,
   COPY_SCOPE_EMPTY_TEXT,
   COPY_SCOPE_STATUS,
-  DEFAULT_SORT,
   filteredTotalFor,
   fromOrderBy,
   keepExistingSourceIds,
@@ -37,7 +37,9 @@ import {
   nextSortState,
   NOTHING_TO_ADD_TOAST,
   PAGE_SIZE_OPTIONS,
+  parseProxiesQuery,
   proxyLabel,
+  serializeProxiesQuery,
   sortGlyph,
   SORT_FIELD_LABELS,
   SORT_OPTIONS,
@@ -49,7 +51,7 @@ import {
   toggleSourceId,
   toOrderBy,
 } from './helpers'
-import type { CopyScope, SortField, SortState, StatusFilter } from './helpers'
+import type { CopyScope, ProxiesQuery, SortField } from './helpers'
 
 import './ProxiesPage.css'
 
@@ -68,10 +70,38 @@ function ProxiesPage({ nav }: ProxiesPageProps) {
   const [activeCount, setActiveCount] = useState(0)
   const [hasNextPage, setHasNextPage] = useState(false)
 
-  const [limit, setLimit] = useState(PAGE_SIZE_OPTIONS[0])
-  const [offset, setOffset] = useState(0)
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>('enabled')
-  const [sort, setSort] = useState<SortState>(DEFAULT_SORT)
+  /*
+   * Страница, размер страницы, фильтр и сортировка хранятся не в useState,
+   * а в адресной строке: `/proxies?limit=10&offset=20&proxy_status=enabled&order_by=latency`.
+   * Так состояние списка переживает перезагрузку, ходит по ссылке и правится
+   * руками прямо в браузере. React-состояние тут было бы вторым источником
+   * правды, поэтому его и нет — только чтение адреса и запись в адрес.
+   */
+  const search = useSearch()
+  const query = useMemo(() => parseProxiesQuery(search), [search])
+  const { limit, offset, status: statusFilter, sort } = query
+  /** Сортировка для запроса: строка, а не объект — её удобно класть в зависимости хуков. */
+  const orderBy = toOrderBy(sort)
+
+  /** Точечно меняет часть параметров адреса, остальные оставляет как есть. */
+  const updateQuery = useCallback(
+    (patch: Partial<ProxiesQuery>) => {
+      setSearch(serializeProxiesQuery({ ...query, ...patch }))
+    },
+    [query],
+  )
+
+  /*
+   * Причёсываем адрес под канон: выкидываем дефолты, мусор и невалидные значения,
+   * которые могли приехать из чужой ссылки или ручной правки. Именно replace —
+   * нормализация не то состояние, куда пользователь захочет вернуться «назад».
+   */
+  useEffect(() => {
+    const canonical = normalizeSearch(serializeProxiesQuery(query))
+    if (canonical !== search) {
+      setSearch(canonical, { replace: true })
+    }
+  }, [query, search])
 
   const [isLoading, setIsLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
@@ -105,7 +135,7 @@ function ProxiesPage({ nav }: ProxiesPageProps) {
           limit,
           offset,
           status: statusFilter === 'all' ? null : statusFilter,
-          orderBy: toOrderBy(sort),
+          orderBy,
           signal,
         })
         if (signal?.aborted) {
@@ -127,7 +157,7 @@ function ProxiesPage({ nav }: ProxiesPageProps) {
         }
       }
     },
-    [limit, offset, sort, statusFilter],
+    [limit, offset, orderBy, statusFilter],
   )
 
   useEffect(() => {
@@ -218,10 +248,12 @@ function ProxiesPage({ nav }: ProxiesPageProps) {
   }, [isSourcePickerOpen, loadSources])
 
   /** Клик по сортируемому заголовку: меняем порядок и возвращаемся на первую страницу. */
-  const handleSort = useCallback((field: SortField) => {
-    setSort((current) => nextSortState(current, field))
-    setOffset(0)
-  }, [])
+  const handleSort = useCallback(
+    (field: SortField) => {
+      updateQuery({ sort: nextSortState(sort, field), offset: 0 })
+    },
+    [sort, updateQuery],
+  )
 
   /**
    * POST /api/proxies отвечает 201 без тела, поэтому актуальный список
@@ -243,7 +275,7 @@ function ProxiesPage({ nav }: ProxiesPageProps) {
         }
 
         pushToast('success', 'Прокси добавлены')
-        setOffset(0)
+        updateQuery({ offset: 0 })
         await loadProxies()
       } catch (error) {
         pushToast('error', error instanceof ApiRequestError ? error.message : 'Не удалось добавить прокси')
@@ -251,7 +283,7 @@ function ProxiesPage({ nav }: ProxiesPageProps) {
         setPendingAction(null)
       }
     },
-    [loadProxies, pushToast],
+    [loadProxies, pushToast, updateQuery],
   )
 
   /**
@@ -278,14 +310,14 @@ function ProxiesPage({ nav }: ProxiesPageProps) {
     try {
       await deleteAllProxies()
       pushToast('success', 'Все прокси удалены')
-      setOffset(0)
+      updateQuery({ offset: 0 })
       await loadProxies()
     } catch (error) {
       pushToast('error', error instanceof ApiRequestError ? error.message : 'Не удалось удалить прокси')
     } finally {
       setPendingAction(null)
     }
-  }, [loadProxies, pushToast])
+  }, [loadProxies, pushToast, updateQuery])
 
   /**
    * DELETE /api/proxies/{id} — удаление одной прокси.
@@ -463,12 +495,9 @@ function ProxiesPage({ nav }: ProxiesPageProps) {
 
   const goToPage = useCallback(
     (page: number) => {
-      setOffset((current) => {
-        const nextOffset = (page - 1) * limit
-        return nextOffset === current ? current : Math.max(0, nextOffset)
-      })
+      updateQuery({ offset: Math.max(0, (page - 1) * limit) })
     },
-    [limit],
+    [limit, updateQuery],
   )
 
   return (
@@ -651,10 +680,7 @@ function ProxiesPage({ nav }: ProxiesPageProps) {
                   key={filter.value}
                   type="button"
                   className={`segmented__item${statusFilter === filter.value ? ' is-active' : ''}`}
-                  onClick={() => {
-                    setStatusFilter(filter.value)
-                    setOffset(0)
-                  }}
+                  onClick={() => updateQuery({ status: filter.value, offset: 0 })}
                   disabled={isBusy}
                 >
                   {filter.label}
@@ -669,11 +695,10 @@ function ProxiesPage({ nav }: ProxiesPageProps) {
             <label className="page-size sort-select">
               <span className="page-size__label">Сортировка</span>
               <select
-                value={toOrderBy(sort)}
-                onChange={(event) => {
-                  setSort(fromOrderBy(event.target.value as ProxyOrderBy))
-                  setOffset(0)
-                }}
+                value={orderBy}
+                onChange={(event) =>
+                  updateQuery({ sort: fromOrderBy(event.target.value as ProxyOrderBy), offset: 0 })
+                }
                 disabled={isBusy}
                 aria-label="Сортировка списка"
                 title="Сортировка списка"
@@ -690,10 +715,7 @@ function ProxiesPage({ nav }: ProxiesPageProps) {
               <span className="page-size__label">На странице</span>
               <select
                 value={limit}
-                onChange={(event) => {
-                  setLimit(Number(event.target.value))
-                  setOffset(0)
-                }}
+                onChange={(event) => updateQuery({ limit: Number(event.target.value), offset: 0 })}
                 disabled={isBusy}
                 aria-label="Элементов на странице"
                 title="Элементов на странице"
@@ -983,7 +1005,7 @@ function ProxiesPage({ nav }: ProxiesPageProps) {
                 <button
                   type="button"
                   className="btn btn--ghost pager__step"
-                  onClick={() => setOffset((current) => Math.max(0, current - limit))}
+                  onClick={() => goToPage(currentPage - 1)}
                   disabled={currentPage === 1 || isBusy}
                   title="Предыдущая страница"
                   aria-label="Предыдущая страница"
@@ -1020,7 +1042,7 @@ function ProxiesPage({ nav }: ProxiesPageProps) {
                 <button
                   type="button"
                   className="btn btn--ghost pager__step"
-                  onClick={() => setOffset((current) => current + limit)}
+                  onClick={() => goToPage(currentPage + 1)}
                   disabled={(!hasNextPage && currentPage >= totalPages) || isBusy}
                   title="Следующая страница"
                   aria-label="Следующая страница"
