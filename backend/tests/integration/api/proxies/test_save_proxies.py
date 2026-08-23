@@ -1,6 +1,5 @@
 from collections.abc import Awaitable, Callable
 
-from assertpy import assert_that
 from httpx import URL, AsyncClient
 from polyfactory.factories.sqlalchemy_factory import SQLAlchemyFactory
 from sqlalchemy import select
@@ -62,29 +61,25 @@ async def test_save_new_proxies_success(
         assert mocked_github.calls.call_count == 1
         assert mocked_github.routes[GITHUB_PROXIES_ROUTE_NAME].call_count == 1
 
-    assert response.status_code == status.HTTP_200_OK
+    assert response.status_code == status.HTTP_201_CREATED, response.text
+    assert response.content == b"null"
 
     mocked_latency.assert_awaited_once()
     assert sorted(str(proxy_to_ping.url) for proxy_to_ping in pinged_proxies(mocked_latency)) == sorted(latency_by_url)
 
-    data = response.json()["payload"]["data"]
-    assert_that(data).extracting("url").contains(*[proxy.tg_proxy_url for proxy in proxies])
+    proxies_in_db = await get_proxies_by_url(db_rollback_session)
 
-    proxies_in_db = (await db_rollback_session.execute(select(TelegramProxy))).scalars().all()
+    assert sorted(proxies_in_db) == sorted(latency_by_url)
 
-    assert len(proxies_in_db) == 3
-
-    latency_by_name = {item["name"]: item["latency"] for item in data}
-    status_by_name = {item["name"]: item["status"] for item in data}
-    for proxy in proxies_in_db:
-        expected_latency = latency_by_url[str(proxy.url)]
-        proxy_name = URL(proxy.url).params["server"]
-        assert latency_by_name[proxy_name] == expected_latency
-        assert status_by_name[proxy_name] == (
+    for url, expected_latency in latency_by_url.items():
+        proxy_in_db = proxies_in_db[url]
+        assert proxy_in_db.name == URL(url).params["server"]
+        assert proxy_in_db.latency == expected_latency
+        assert proxy_in_db.status == (
             ProxyStatusEnum.enabled if expected_latency is not None else ProxyStatusEnum.disabled
         )
         # Источник, из которого прилетел урл, сохраняется вместе с прокси.
-        assert proxy.source_id == source_id
+        assert proxy_in_db.source_id == source_id
 
 
 async def test_save_new_proxies_from_several_sources(
@@ -122,15 +117,12 @@ async def test_save_new_proxies_from_several_sources(
         for source_url in raw_proxies_by_source:
             assert mocked_github.routes[source_route_name(source_url)].call_count == 1
 
-    assert response.status_code == status.HTTP_200_OK, response.text
+    assert response.status_code == status.HTTP_201_CREATED, response.text
+    assert response.content == b"null"
 
     # Пинг идёт одним пакетом на все источники сразу.
     mocked_latency.assert_awaited_once()
     assert sorted(str(proxy_to_ping.url) for proxy_to_ping in pinged_proxies(mocked_latency)) == sorted(all_urls)
-
-    data = response.json()["payload"]["data"]
-
-    assert len(data) == len(all_urls)
 
     proxies_in_db = await get_proxies_by_url(db_rollback_session)
 
@@ -180,7 +172,7 @@ async def test_save_new_proxies_ignores_disabled_source(
         assert mocked_github.calls.call_count == 1
         assert mocked_github.routes[source_route_name(enabled_source.url)].call_count == 1
 
-    assert response.status_code == status.HTTP_200_OK, response.text
+    assert response.status_code == status.HTTP_201_CREATED, response.text
 
     mocked_latency.assert_awaited_once()
     assert sorted(str(proxy_to_ping.url) for proxy_to_ping in pinged_proxies(mocked_latency)) == sorted(
@@ -232,7 +224,7 @@ async def test_save_new_proxies_deduplicates_urls_from_several_sources(
 
         assert mocked_github.calls.call_count == len(raw_proxies_by_source)
 
-    assert response.status_code == status.HTTP_200_OK, response.text
+    assert response.status_code == status.HTTP_201_CREATED, response.text
 
     proxies_in_db = await get_proxies_by_url(db_rollback_session)
 
@@ -279,7 +271,7 @@ async def test_save_new_proxies_skips_url_already_saved_from_another_source(
     ):
         response = await rest_client.post("/api/proxies")
 
-    assert response.status_code == status.HTTP_200_OK, response.text
+    assert response.status_code == status.HTTP_201_CREATED, response.text
 
     mocked_latency.assert_awaited_once()
     assert [str(proxy_to_ping.url) for proxy_to_ping in pinged_proxies(mocked_latency)] == [fresh_url]
@@ -390,7 +382,8 @@ async def test_save_proxies_sends_urls_over_chunk_size_to_taskiq(
 
         assert mocked_github.routes[GITHUB_PROXIES_ROUTE_NAME].call_count == 1
 
-    assert response.status_code == status.HTTP_200_OK, response.text
+    assert response.status_code == status.HTTP_201_CREATED, response.text
+    assert response.content == b"null"
 
     mocked_latency.assert_awaited_once()
     assert len(pinged_proxies(mocked_latency)) == CHUNK_SIZE_FOR_TESTS
@@ -404,9 +397,6 @@ async def test_save_proxies_sends_urls_over_chunk_size_to_taskiq(
     assert len(deferred) == PROXIES_OVER_CHUNK_SIZE
     # "Хвост" уезжает в таску вместе с источником, иначе отложенные прокси сохранились бы без него.
     assert {item["source_id"] for item in deferred} == {source_id}
-
-    data = response.json()["payload"]["data"]
-    assert len(data) == CHUNK_SIZE_FOR_TESTS
 
     proxies_in_db = await get_proxies_by_url(db_rollback_session)
 

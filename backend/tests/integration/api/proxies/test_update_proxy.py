@@ -29,7 +29,8 @@ async def test_update_a_proxy_status(
 
     response = await rest_client.patch(f"/api/proxies/{proxy_id}", json={"status": ProxyStatusEnum.enabled})
 
-    assert response.status_code == status.HTTP_200_OK, response.text
+    assert response.status_code == status.HTTP_202_ACCEPTED, response.text
+    assert response.content == b"null"
 
     updated_proxy = (
         await db_rollback_session.execute(select(TelegramProxy).where(TelegramProxy.id == proxy_id))
@@ -39,18 +40,9 @@ async def test_update_a_proxy_status(
     assert updated_proxy.latency == 100
     assert updated_proxy.updated_at is not None
     assert updated_proxy.source_id == source_id
-
-    data = response.json()["payload"]["data"]
-
-    assert data == {
-        "id": proxy_id,
-        "name": proxy_name,
-        "url": URL("tg://proxy", params=URL(proxy_url).params),
-        "created_at": updated_proxy.created_at.isoformat(),
-        "updated_at": updated_proxy.updated_at.isoformat(),
-        "status": ProxyStatusEnum.enabled,
-        "latency": 100,
-    }
+    # Обновление статуса не должно трогать неизменяемые поля прокси.
+    assert updated_proxy.name == proxy_name
+    assert updated_proxy.url == proxy_url
 
 
 async def test_update_a_proxy_latency(
@@ -68,7 +60,8 @@ async def test_update_a_proxy_latency(
     async with mocked_get_host_latency(default_latency=777) as mocked_latency:
         response = await rest_client.patch(f"/api/proxies/{proxy_id}", json={"is_latency_update": True})
 
-    assert response.status_code == status.HTTP_200_OK, response.text
+    assert response.status_code == status.HTTP_202_ACCEPTED, response.text
+    assert response.content == b"null"
 
     # На пинг уезжает пара (source_id, url), а не голый урл.
     mocked_latency.assert_awaited_once_with(ProxySourceToPingDTO(source_id=source_id, url=URL(proxy_url)))
@@ -81,18 +74,8 @@ async def test_update_a_proxy_latency(
     assert updated_proxy.status == ProxyStatusEnum.enabled
     assert updated_proxy.updated_at is not None
     assert updated_proxy.source_id == source_id
-
-    data = response.json()["payload"]["data"]
-
-    assert data == {
-        "id": proxy_id,
-        "name": proxy_name,
-        "url": URL("tg://proxy", params=URL(proxy_url).params),
-        "created_at": updated_proxy.created_at.isoformat(),
-        "updated_at": updated_proxy.updated_at.isoformat(),
-        "status": ProxyStatusEnum.enabled,
-        "latency": 777,
-    }
+    assert updated_proxy.name == proxy_name
+    assert updated_proxy.url == proxy_url
 
 
 async def test_update_a_proxy_latency_sends_its_source_to_gateway(
@@ -133,7 +116,7 @@ async def test_update_a_proxy_latency_sends_its_source_to_gateway(
     async with mocked_get_host_latency(default_latency=777) as mocked_latency:
         response = await rest_client.patch(f"/api/proxies/{proxy_id}", json={"is_latency_update": True})
 
-    assert response.status_code == status.HTTP_200_OK, response.text
+    assert response.status_code == status.HTTP_202_ACCEPTED, response.text
 
     mocked_latency.assert_awaited_once_with(ProxySourceToPingDTO(source_id=target_source_id, url=URL(proxy_url)))
 
@@ -176,7 +159,7 @@ async def test_update_a_proxy_latency_without_source(
     async with mocked_get_host_latency(default_latency=321) as mocked_latency:
         response = await rest_client.patch(f"/api/proxies/{proxy_id}", json={"is_latency_update": True})
 
-    assert response.status_code == status.HTTP_200_OK, response.text
+    assert response.status_code == status.HTTP_202_ACCEPTED, response.text
 
     mocked_latency.assert_awaited_once_with(ProxySourceToPingDTO(source_id=None, url=URL(proxy_url)))
 
@@ -204,7 +187,8 @@ async def test_update_a_proxy_latency_when_proxy_is_unreachable(
     async with mocked_get_host_latency(default_latency=None) as mocked_latency:
         response = await rest_client.patch(f"/api/proxies/{proxy_id}", json={"is_latency_update": True})
 
-    assert response.status_code == status.HTTP_200_OK, response.text
+    assert response.status_code == status.HTTP_202_ACCEPTED, response.text
+    assert response.content == b"null"
 
     mocked_latency.assert_awaited_once_with(ProxySourceToPingDTO(source_id=source_id, url=URL(proxy_url)))
 
@@ -218,11 +202,6 @@ async def test_update_a_proxy_latency_when_proxy_is_unreachable(
     # поэтому у недоступной прокси (latency=None) в базе остаётся прежнее значение.
     assert updated_proxy.latency == 100
     assert updated_proxy.source_id == source_id
-
-    data = response.json()["payload"]["data"]
-
-    assert data["status"] == ProxyStatusEnum.disabled
-    assert data["latency"] == 100
 
 
 async def test_update_a_proxy_without_any_changes(
@@ -239,7 +218,8 @@ async def test_update_a_proxy_without_any_changes(
 
     response = await rest_client.patch(f"/api/proxies/{proxy_id}", json={})
 
-    assert response.status_code == status.HTTP_200_OK, response.text
+    assert response.status_code == status.HTTP_202_ACCEPTED, response.text
+    assert response.content == b"null"
 
     updated_proxy = (
         await db_rollback_session.execute(select(TelegramProxy).where(TelegramProxy.id == proxy_id))
@@ -249,12 +229,6 @@ async def test_update_a_proxy_without_any_changes(
     assert updated_proxy.latency == 100
     assert updated_proxy.updated_at is None
     assert updated_proxy.source_id == source_id
-
-    data = response.json()["payload"]["data"]
-
-    assert data["status"] == ProxyStatusEnum.disabled
-    assert data["latency"] == 100
-    assert data["updated_at"] is None
 
 
 async def test_update_a_proxy_not_found(
