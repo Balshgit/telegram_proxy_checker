@@ -11,7 +11,8 @@ from starlette import status
 
 from app.core.constants import MOSCOW_TZ
 from app.core.proxies.constants import ProxyOrderByEnum, ProxyStatusEnum
-from tests.support.factories.proxies import TelegramProxiesSourceFactory, TelegramProxyFactory
+from tests.support.factories.proxies import TelegramProxyFactory
+from tests.support.factories.proxies_sources import TelegramProxiesSourceFactory
 
 FAST_PROXY = "fast"
 SLOW_PROXY = "slow"

@@ -3,8 +3,9 @@ from collections.abc import Awaitable, Callable
 from polyfactory.factories.sqlalchemy_factory import SQLAlchemyFactory
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.proxies.constants import ProxySourceStatusEnum, ProxyStatusEnum
+from app.core.proxies.constants import ProxyStatusEnum
 from app.core.proxies.tasks import save_proxies_to_database_task, update_proxies_in_database_task
+from app.core.proxies_sources.constants import ProxySourceStatusEnum
 from app.di.dependency_injector import Container
 from tests.integration.api.proxies.helpers import (
     build_proxy_url,
@@ -13,7 +14,8 @@ from tests.integration.api.proxies.helpers import (
     pinged_source_id_by_server,
 )
 from tests.integration.context import DummyContext
-from tests.support.factories.proxies import TelegramProxiesSourceFactory, TelegramProxyFactory
+from tests.support.factories.proxies import TelegramProxyFactory
+from tests.support.factories.proxies_sources import TelegramProxiesSourceFactory
 
 FIRST_PROXY_SERVER = "1.2.3.4"
 SECOND_PROXY_SERVER = "5.6.7.8"

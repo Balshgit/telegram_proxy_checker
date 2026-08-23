@@ -9,12 +9,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from starlette import status
 
 from app.core.constants import MOSCOW_TZ
-from app.core.proxies.constants import ProxySourceStatusEnum, ProxyVendorNameEnum
-from tests.integration.api.proxies.helpers import MISSING_PROXY_SOURCE_ID, get_proxies_sources_by_id
-from tests.support.factories.proxies import TelegramProxiesSourceFactory
-
-UPDATED_SOURCE_NAME = "renamed-collector"
-UPDATED_SOURCE_URL = "https://raw.githubusercontent.com/owner/repo/main/renamed.txt"
+from app.core.proxies_sources.constants import ProxySourceStatusEnum, ProxyVendorNameEnum
+from tests.integration.api.proxies_sources.helpers import (
+    MISSING_PROXY_SOURCE_ID,
+    UPDATED_SOURCE_NAME,
+    UPDATED_SOURCE_URL,
+    get_proxies_sources_by_id,
+)
+from tests.support.factories.proxies_sources import TelegramProxiesSourceFactory
 
 
 async def test_update_proxies_source_all_fields(
@@ -50,7 +52,8 @@ async def test_update_proxies_source_all_fields(
         },
     )
 
-    assert response.status_code == status.HTTP_200_OK, response.text
+    assert response.status_code == status.HTTP_204_NO_CONTENT, response.text
+    assert response.content == b""
 
     sources_in_db = await get_proxies_sources_by_id(db_rollback_session)
     source_in_db = sources_in_db[source_id]
@@ -64,20 +67,6 @@ async def test_update_proxies_source_all_fields(
     assert source_in_db.created_at == created_at
     assert source_in_db.proxies_count == 7
     assert source_in_db.active_proxies_count == 3
-
-    data = response.json()["payload"]["data"]
-
-    assert data == {
-        "id": source_id,
-        "name": UPDATED_SOURCE_NAME,
-        "url": UPDATED_SOURCE_URL,
-        "status": ProxySourceStatusEnum.disabled,
-        "vendor": ProxyVendorNameEnum.external,
-        "created_at": created_at.isoformat(),
-        "updated_at": source_in_db.updated_at.isoformat(),
-        "proxies_count": 7,
-        "active_proxies_count": 3,
-    }
 
 
 async def test_update_proxies_source_partially(
@@ -102,7 +91,7 @@ async def test_update_proxies_source_partially(
         json={"status": ProxySourceStatusEnum.disabled},
     )
 
-    assert response.status_code == status.HTTP_200_OK, response.text
+    assert response.status_code == status.HTTP_204_NO_CONTENT, response.text
 
     sources_in_db = await get_proxies_sources_by_id(db_rollback_session)
     source_in_db = sources_in_db[source_id]
@@ -131,7 +120,7 @@ async def test_update_proxies_source_without_any_changes(
 
     response = await rest_client.patch(f"/api/proxies/sources/{source_id}", json={})
 
-    assert response.status_code == status.HTTP_200_OK, response.text
+    assert response.status_code == status.HTTP_204_NO_CONTENT, response.text
 
     sources_in_db = await get_proxies_sources_by_id(db_rollback_session)
     source_in_db = sources_in_db[source_id]
@@ -160,7 +149,7 @@ async def test_update_proxies_source_does_not_touch_other_sources(
 
     response = await rest_client.patch(f"/api/proxies/sources/{target_source_id}", json={"name": UPDATED_SOURCE_NAME})
 
-    assert response.status_code == status.HTTP_200_OK, response.text
+    assert response.status_code == status.HTTP_204_NO_CONTENT, response.text
 
     sources_in_db = await get_proxies_sources_by_id(db_rollback_session)
 

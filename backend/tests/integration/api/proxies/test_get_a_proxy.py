@@ -9,7 +9,8 @@ from starlette import status
 from app.core.constants import MOSCOW_TZ
 from app.core.proxies.constants import ProxyStatusEnum
 from tests.integration.api.proxies.helpers import MISSING_PROXY_ID
-from tests.support.factories.proxies import TelegramProxiesSourceFactory, TelegramProxyFactory
+from tests.support.factories.proxies import TelegramProxyFactory
+from tests.support.factories.proxies_sources import TelegramProxiesSourceFactory
 
 
 async def test_get_a_proxy(

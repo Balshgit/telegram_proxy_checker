@@ -12,9 +12,5 @@ class ProxyNotFoundException(TPCCoreException):
     msg_template = "Proxy with id {proxy_id} not found"
 
 
-class ProxySourceNotFoundException(TPCCoreException):
-    msg_template = "Proxies source with id {proxy_source_id} not found"
-
-
 class NoProxiesAddedException(TPCCoreException):
     msg_template = "No proxies to add"

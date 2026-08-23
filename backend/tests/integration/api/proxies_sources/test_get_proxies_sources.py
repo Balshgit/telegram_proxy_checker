@@ -9,8 +9,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from starlette import status
 
 from app.core.constants import MOSCOW_TZ
-from app.core.proxies.constants import ProxySourceStatusEnum, ProxyVendorNameEnum
-from tests.support.factories.proxies import TelegramProxiesSourceFactory
+from app.core.proxies_sources.constants import ProxySourceStatusEnum, ProxyVendorNameEnum
+from tests.support.factories.proxies_sources import TelegramProxiesSourceFactory
 
 
 async def test_get_proxies_sources_empty_list(

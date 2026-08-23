@@ -6,17 +6,17 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette import status
 
-from app.core.proxies.constants import ProxySourceStatusEnum
 from app.core.proxies.models import TelegramProxy
+from app.core.proxies_sources.constants import ProxySourceStatusEnum
 from tests.integration.api.proxies.helpers import (
-    MISSING_PROXY_SOURCE_ID,
     build_proxy_url,
     get_proxies_by_url,
     mocked_get_host_latency_for_urls,
     mocked_github_get_proxies_by_source,
     source_route_name,
 )
-from tests.support.factories.proxies import TelegramProxiesSourceFactory
+from tests.integration.api.proxies_sources.helpers import MISSING_PROXY_SOURCE_ID
+from tests.support.factories.proxies_sources import TelegramProxiesSourceFactory
 
 
 async def test_save_proxies_from_the_chosen_source_only(

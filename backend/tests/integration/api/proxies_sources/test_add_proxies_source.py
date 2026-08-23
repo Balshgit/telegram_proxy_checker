@@ -7,12 +7,13 @@ from polyfactory.factories.sqlalchemy_factory import SQLAlchemyFactory
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette import status
 
-from app.core.proxies.constants import ProxySourceStatusEnum, ProxyVendorNameEnum
-from tests.integration.api.proxies.helpers import get_proxies_sources_by_id
-from tests.support.factories.proxies import TelegramProxiesSourceFactory
-
-NEW_SOURCE_NAME = "my-collector"
-NEW_SOURCE_URL = "https://raw.githubusercontent.com/owner/repo/main/proxies.txt"
+from app.core.proxies_sources.constants import ProxySourceStatusEnum, ProxyVendorNameEnum
+from tests.integration.api.proxies_sources.helpers import (
+    NEW_SOURCE_NAME,
+    NEW_SOURCE_URL,
+    get_proxies_sources_by_id,
+)
+from tests.support.factories.proxies_sources import TelegramProxiesSourceFactory
 
 
 async def test_add_proxies_source(
@@ -47,30 +48,16 @@ async def test_add_proxies_source(
     assert source_in_db.created_at is not None
     assert source_in_db.updated_at is None
 
-    data = response.json()["payload"]["data"]
-
-    assert data == {
-        "id": source_in_db.id,
-        "name": NEW_SOURCE_NAME,
-        "url": NEW_SOURCE_URL,
-        "status": ProxySourceStatusEnum.disabled,
-        "vendor": ProxyVendorNameEnum.external,
-        "created_at": source_in_db.created_at.isoformat(),
-        "updated_at": None,
-        "proxies_count": 0,
-        "active_proxies_count": 0,
-    }
-
 
 async def test_add_proxies_source_with_default_status_and_vendor(
     rest_client: AsyncClient,
     db_rollback_session: AsyncSession,
 ) -> None:
-    """Без `status` / `vendor` источник заводится включённым гитхабовским: его сразу опрашивает сервис."""
+    """Без `status` источник заводится включённым: его сразу опрашивает сервис."""
 
     response = await rest_client.post(
         "/api/proxies/sources",
-        json={"name": NEW_SOURCE_NAME, "url": NEW_SOURCE_URL},
+        json={"name": NEW_SOURCE_NAME, "url": NEW_SOURCE_URL, "vendor": "external"},
     )
 
     assert response.status_code == status.HTTP_201_CREATED, response.text
@@ -82,7 +69,7 @@ async def test_add_proxies_source_with_default_status_and_vendor(
     source_in_db = next(iter(sources_in_db.values()))
 
     assert source_in_db.status == ProxySourceStatusEnum.enabled
-    assert source_in_db.vendor == ProxyVendorNameEnum.github
+    assert source_in_db.vendor == ProxyVendorNameEnum.external
 
 
 async def test_add_proxies_source_keeps_existing_sources(
@@ -101,16 +88,20 @@ async def test_add_proxies_source_keeps_existing_sources(
 
     response = await rest_client.post(
         "/api/proxies/sources",
-        json={"name": NEW_SOURCE_NAME, "url": NEW_SOURCE_URL},
+        json={"name": NEW_SOURCE_NAME, "url": NEW_SOURCE_URL, "vendor": "external"},
     )
 
     assert response.status_code == status.HTTP_201_CREATED, response.text
 
-    new_source_id = response.json()["payload"]["data"]["id"]
-
     sources_in_db = await get_proxies_sources_by_id(db_rollback_session)
 
-    assert sorted(sources_in_db) == sorted([existing_source_id, new_source_id])
+    # Эндпоинт ничего не отдаёт в теле, поэтому новый источник ищем в базе по остатку.
+    new_source_ids = set(sources_in_db) - {existing_source_id}
+
+    assert len(new_source_ids) == 1
+
+    new_source_id = next(iter(new_source_ids))
+
     assert sources_in_db[existing_source_id].url == existing_source_url
     assert sources_in_db[new_source_id].url == NEW_SOURCE_URL
 
@@ -118,13 +109,14 @@ async def test_add_proxies_source_keeps_existing_sources(
 @pytest.mark.parametrize(
     "body",
     [
-        pytest.param({"url": NEW_SOURCE_URL}, id="without name"),
-        pytest.param({"name": NEW_SOURCE_NAME}, id="without url"),
-        pytest.param({"name": "", "url": NEW_SOURCE_URL}, id="empty name"),
-        pytest.param({"name": "a" * 201, "url": NEW_SOURCE_URL}, id="too long name"),
-        pytest.param({"name": NEW_SOURCE_NAME, "url": "not-a-url"}, id="malformed url"),
+        pytest.param({"url": NEW_SOURCE_URL, "vendor": "external"}, id="without name"),
+        pytest.param({"name": NEW_SOURCE_NAME, "vendor": "external"}, id="without url"),
+        pytest.param({"name": NEW_SOURCE_NAME, "url": NEW_SOURCE_URL}, id="without vendor"),
+        pytest.param({"name": "", "url": NEW_SOURCE_URL, "vendor": "external"}, id="empty name"),
+        pytest.param({"name": "a" * 201, "url": NEW_SOURCE_URL, "vendor": "external"}, id="too long name"),
+        pytest.param({"name": NEW_SOURCE_NAME, "url": "not-a-url", "vendor": "external"}, id="malformed url"),
         pytest.param(
-            {"name": NEW_SOURCE_NAME, "url": NEW_SOURCE_URL, "status": "unknown"},
+            {"name": NEW_SOURCE_NAME, "url": NEW_SOURCE_URL, "vendor": "external", "status": "unknown"},
             id="unknown status",
         ),
         pytest.param(

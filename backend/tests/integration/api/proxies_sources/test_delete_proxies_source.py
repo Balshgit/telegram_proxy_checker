@@ -5,13 +5,12 @@ from polyfactory.factories.sqlalchemy_factory import SQLAlchemyFactory
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette import status
 
-from app.core.proxies.constants import ProxySourceStatusEnum, ProxyStatusEnum
-from tests.integration.api.proxies.helpers import (
-    MISSING_PROXY_SOURCE_ID,
-    get_proxies_by_id,
-    get_proxies_sources_by_id,
-)
-from tests.support.factories.proxies import TelegramProxiesSourceFactory, TelegramProxyFactory
+from app.core.proxies.constants import ProxyStatusEnum
+from app.core.proxies_sources.constants import ProxySourceStatusEnum
+from tests.integration.api.proxies.helpers import get_proxies_by_id
+from tests.integration.api.proxies_sources.helpers import MISSING_PROXY_SOURCE_ID, get_proxies_sources_by_id
+from tests.support.factories.proxies import TelegramProxyFactory
+from tests.support.factories.proxies_sources import TelegramProxiesSourceFactory
 
 
 async def test_delete_proxies_source(

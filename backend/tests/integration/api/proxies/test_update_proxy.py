@@ -6,11 +6,13 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette import status
 
-from app.core.proxies.constants import ProxySourceStatusEnum, ProxyStatusEnum
+from app.core.proxies.constants import ProxyStatusEnum
 from app.core.proxies.dto import ProxySourceToPingDTO
 from app.core.proxies.models import TelegramProxy
+from app.core.proxies_sources.constants import ProxySourceStatusEnum
 from tests.integration.api.proxies.helpers import MISSING_PROXY_ID, build_proxy_url, mocked_get_host_latency
-from tests.support.factories.proxies import TelegramProxiesSourceFactory, TelegramProxyFactory
+from tests.support.factories.proxies import TelegramProxyFactory
+from tests.support.factories.proxies_sources import TelegramProxiesSourceFactory
 
 PROXY_SERVER = "1.2.3.4"
 
