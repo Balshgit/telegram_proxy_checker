@@ -1,7 +1,9 @@
+from __future__ import annotations
+
 from datetime import datetime
 
 from httpx import URL
-from sqlalchemy import DateTime, Integer, String, func
+from sqlalchemy import DateTime, ForeignKey, Integer, String, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.orm.relationships import foreign, remote
 from sqlalchemy_utils import ChoiceType
@@ -31,18 +33,38 @@ class TelegramProxiesSource(DBBase):
     )
     created_at: Mapped[datetime] = mapped_column("created_at", DateTime, default=func.now())
     updated_at: Mapped[datetime | None] = mapped_column("updated_at", DateTime)
-    proxies_count: Mapped[int] = mapped_column("proxies_count", Integer, comment="Proxies from this source", default=0)
+    proxies_count: Mapped[int] = mapped_column(
+        "proxies_count",
+        Integer,
+        server_default="0",
+        default=0,
+        comment="All proxies count from this source",
+    )
+    active_proxies_count: Mapped[int] = mapped_column(
+        "active_proxies_count",
+        Integer,
+        server_default="0",
+        default=0,
+        comment="Active proxies count from this source",
+    )
 
 
 class TelegramProxy(DBBase):
 
     __tablename__ = "proxies"
-    __table_args__ = ({"schema": get_public_shema()},)
+    __table_args__ = (
+        UniqueConstraint("id", "source_id", name="One url from one source"),
+        {"schema": get_public_shema()},
+    )
 
     id: Mapped[int] = mapped_column("id", Integer, primary_key=True, autoincrement=True)
     name: Mapped[str] = mapped_column("name", String(200), comment="Proxy name")
     url: Mapped[URL] = mapped_column("url", String(4000), comment="Proxy address")
-    source_id: Mapped[int | None] = mapped_column("source_id", Integer, comment="Proxy source id")
+    source_id: Mapped[int | None] = mapped_column(
+        "source_id",
+        ForeignKey(TelegramProxiesSource.id, ondelete="SET NULL", name="proxy_source_ref"),
+        comment="Proxy source id",
+    )
     created_at: Mapped[datetime] = mapped_column("created_at", DateTime, default=func.now())
     updated_at: Mapped[datetime | None] = mapped_column("updated_at", DateTime)
     status: Mapped[ProxyStatusEnum] = mapped_column("status", ChoiceType(ProxyStatusEnum, impl=String(20)))

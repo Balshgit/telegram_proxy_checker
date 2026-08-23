@@ -1,6 +1,5 @@
 from collections.abc import Awaitable, Callable
 
-from assertpy import assert_that
 from httpx import URL, AsyncClient
 from polyfactory.factories.sqlalchemy_factory import SQLAlchemyFactory
 from sqlalchemy import select
@@ -14,11 +13,14 @@ from tests.integration.api.proxies.helpers import (
     CHUNK_SIZE_FOR_TESTS,
     GITHUB_PROXIES_ROUTE_NAME,
     build_proxy_url,
+    deferred_source_urls,
+    get_proxies_by_url,
     mocked_get_host_latency_for_urls,
     mocked_github_get_proxies,
     mocked_github_get_proxies_by_source,
     mocked_save_postgres_chunk_size,
     mocked_taskiq_run,
+    pinged_proxies,
     source_route_name,
 )
 from tests.support.factories.proxies import TelegramProxiesSourceFactory, TelegramProxyFactory
@@ -38,7 +40,8 @@ async def test_save_new_proxies_success(
         factory_cls=TelegramProxiesSourceFactory, session=db_rollback_session
     )
 
-    await proxies_source_factory.create_async(status=ProxySourceStatusEnum.enabled)
+    source = await proxies_source_factory.create_async(status=ProxySourceStatusEnum.enabled)
+    source_id = source.id
 
     proxies = [proxy_factory.build() for _ in range(3)]
     raw_proxies = "\n".join(proxy.url for proxy in proxies)
@@ -58,27 +61,25 @@ async def test_save_new_proxies_success(
         assert mocked_github.calls.call_count == 1
         assert mocked_github.routes[GITHUB_PROXIES_ROUTE_NAME].call_count == 1
 
-    assert response.status_code == status.HTTP_200_OK
+    assert response.status_code == status.HTTP_201_CREATED, response.text
+    assert response.content == b"null"
 
     mocked_latency.assert_awaited_once()
-    assert sorted(str(url) for url in mocked_latency.await_args.kwargs["urls"]) == sorted(latency_by_url)
+    assert sorted(str(proxy_to_ping.url) for proxy_to_ping in pinged_proxies(mocked_latency)) == sorted(latency_by_url)
 
-    data = response.json()["payload"]["data"]
-    assert_that(data).extracting("url").contains(*[proxy.tg_proxy_url for proxy in proxies])
+    proxies_in_db = await get_proxies_by_url(db_rollback_session)
 
-    proxies_in_db = (await db_rollback_session.execute(select(TelegramProxy))).scalars().all()
+    assert sorted(proxies_in_db) == sorted(latency_by_url)
 
-    assert len(proxies_in_db) == 3
-
-    latency_by_name = {item["name"]: item["latency"] for item in data}
-    status_by_name = {item["name"]: item["status"] for item in data}
-    for proxy in proxies_in_db:
-        expected_latency = latency_by_url[str(proxy.url)]
-        proxy_name = URL(proxy.url).params["server"]
-        assert latency_by_name[proxy_name] == expected_latency
-        assert status_by_name[proxy_name] == (
+    for url, expected_latency in latency_by_url.items():
+        proxy_in_db = proxies_in_db[url]
+        assert proxy_in_db.name == URL(url).params["server"]
+        assert proxy_in_db.latency == expected_latency
+        assert proxy_in_db.status == (
             ProxyStatusEnum.enabled if expected_latency is not None else ProxyStatusEnum.disabled
         )
+        # Источник, из которого прилетел урл, сохраняется вместе с прокси.
+        assert proxy_in_db.source_id == source_id
 
 
 async def test_save_new_proxies_from_several_sources(
@@ -95,6 +96,7 @@ async def test_save_new_proxies_from_several_sources(
 
     first_source = await proxies_source_factory.create_async(status=ProxySourceStatusEnum.enabled)
     second_source = await proxies_source_factory.create_async(status=ProxySourceStatusEnum.enabled)
+    first_source_id, second_source_id = first_source.id, second_source.id
 
     first_source_urls = [build_proxy_url(server=f"10.0.0.{number}") for number in range(2)]
     second_source_urls = [build_proxy_url(server=f"10.0.1.{number}") for number in range(3)]
@@ -115,23 +117,27 @@ async def test_save_new_proxies_from_several_sources(
         for source_url in raw_proxies_by_source:
             assert mocked_github.routes[source_route_name(source_url)].call_count == 1
 
-    assert response.status_code == status.HTTP_200_OK, response.text
+    assert response.status_code == status.HTTP_201_CREATED, response.text
+    assert response.content == b"null"
 
     # Пинг идёт одним пакетом на все источники сразу.
     mocked_latency.assert_awaited_once()
-    assert sorted(str(url) for url in mocked_latency.await_args.kwargs["urls"]) == sorted(all_urls)
+    assert sorted(str(proxy_to_ping.url) for proxy_to_ping in pinged_proxies(mocked_latency)) == sorted(all_urls)
 
-    data = response.json()["payload"]["data"]
+    proxies_in_db = await get_proxies_by_url(db_rollback_session)
 
-    assert len(data) == len(all_urls)
+    assert sorted(proxies_in_db) == sorted(all_urls)
 
-    proxies_in_db = (await db_rollback_session.execute(select(TelegramProxy))).scalars().all()
-
-    assert sorted(proxy.url for proxy in proxies_in_db) == sorted(all_urls)
-
-    for proxy in proxies_in_db:
+    for proxy in proxies_in_db.values():
         assert proxy.latency == 42
         assert proxy.status == ProxyStatusEnum.enabled
+
+    # Каждая прокси помнит именно тот источник, который её отдал.
+    expected_source_id_by_url = dict.fromkeys(first_source_urls, first_source_id) | dict.fromkeys(
+        second_source_urls, second_source_id
+    )
+
+    assert {url: proxy.source_id for url, proxy in proxies_in_db.items()} == expected_source_id_by_url
 
 
 async def test_save_new_proxies_ignores_disabled_source(
@@ -153,6 +159,7 @@ async def test_save_new_proxies_ignores_disabled_source(
 
     enabled_source = await proxies_source_factory.create_async(status=ProxySourceStatusEnum.enabled)
     await proxies_source_factory.create_async(status=ProxySourceStatusEnum.disabled)
+    enabled_source_id = enabled_source.id
 
     enabled_source_urls = [build_proxy_url(server=f"10.0.0.{number}") for number in range(2)]
 
@@ -165,14 +172,19 @@ async def test_save_new_proxies_ignores_disabled_source(
         assert mocked_github.calls.call_count == 1
         assert mocked_github.routes[source_route_name(enabled_source.url)].call_count == 1
 
-    assert response.status_code == status.HTTP_200_OK, response.text
+    assert response.status_code == status.HTTP_201_CREATED, response.text
 
     mocked_latency.assert_awaited_once()
-    assert sorted(str(url) for url in mocked_latency.await_args.kwargs["urls"]) == sorted(enabled_source_urls)
+    assert sorted(str(proxy_to_ping.url) for proxy_to_ping in pinged_proxies(mocked_latency)) == sorted(
+        enabled_source_urls
+    )
 
-    proxies_in_db = (await db_rollback_session.execute(select(TelegramProxy))).scalars().all()
+    proxies_in_db = await get_proxies_by_url(db_rollback_session)
 
-    assert sorted(proxy.url for proxy in proxies_in_db) == sorted(enabled_source_urls)
+    assert sorted(proxies_in_db) == sorted(enabled_source_urls)
+
+    for proxy in proxies_in_db.values():
+        assert proxy.source_id == enabled_source_id
 
 
 async def test_save_new_proxies_deduplicates_urls_from_several_sources(
@@ -182,13 +194,19 @@ async def test_save_new_proxies_deduplicates_urls_from_several_sources(
         [type[SQLAlchemyFactory], AsyncSession], Awaitable[type[SQLAlchemyFactory]]
     ],
 ) -> None:
-    """Один и тот же урл в двух источниках должен сохраниться в базу ровно один раз."""
+    """
+    Один и тот же урл в двух источниках должен сохраниться в базу ровно один раз.
+
+    Дедупликация идёт по урлу, поэтому побеждает один из источников: какой именно —
+    зависит от порядка обхода, и тест это не фиксирует.
+    """
     proxies_source_factory = await sqlalchemy_model_factory_maker(
         factory_cls=TelegramProxiesSourceFactory, session=db_rollback_session
     )
 
     first_source = await proxies_source_factory.create_async(status=ProxySourceStatusEnum.enabled)
     second_source = await proxies_source_factory.create_async(status=ProxySourceStatusEnum.enabled)
+    first_source_id, second_source_id = first_source.id, second_source.id
 
     shared_url = build_proxy_url(server="10.0.0.1")
     unique_url = build_proxy_url(server="10.0.0.2")
@@ -206,11 +224,68 @@ async def test_save_new_proxies_deduplicates_urls_from_several_sources(
 
         assert mocked_github.calls.call_count == len(raw_proxies_by_source)
 
-    assert response.status_code == status.HTTP_200_OK, response.text
+    assert response.status_code == status.HTTP_201_CREATED, response.text
 
-    proxies_in_db = (await db_rollback_session.execute(select(TelegramProxy))).scalars().all()
+    proxies_in_db = await get_proxies_by_url(db_rollback_session)
 
-    assert sorted(proxy.url for proxy in proxies_in_db) == sorted([shared_url, unique_url])
+    assert sorted(proxies_in_db) == sorted([shared_url, unique_url])
+
+    # У общего урла источник — один из двух, но обязательно проставлен.
+    assert proxies_in_db[shared_url].source_id in {first_source_id, second_source_id}
+    # Уникальный урл есть только у второго источника, тут разночтений быть не может.
+    assert proxies_in_db[unique_url].source_id == second_source_id
+
+
+async def test_save_new_proxies_skips_url_already_saved_from_another_source(
+    rest_client: AsyncClient,
+    db_rollback_session: AsyncSession,
+    sqlalchemy_model_factory_maker: Callable[
+        [type[SQLAlchemyFactory], AsyncSession], Awaitable[type[SQLAlchemyFactory]]
+    ],
+) -> None:
+    """
+    Урл, уже сохранённый из одного источника, не добавляется повторно из другого.
+
+    Источник у существующей записи при этом не переписывается: сервис такие урлы просто пропускает.
+    """
+    proxy_factory = await sqlalchemy_model_factory_maker(factory_cls=TelegramProxyFactory, session=db_rollback_session)
+    proxies_source_factory = await sqlalchemy_model_factory_maker(
+        factory_cls=TelegramProxiesSourceFactory, session=db_rollback_session
+    )
+
+    old_source = await proxies_source_factory.create_async(status=ProxySourceStatusEnum.disabled)
+    new_source = await proxies_source_factory.create_async(status=ProxySourceStatusEnum.enabled)
+    old_source_id, new_source_id = old_source.id, new_source.id
+
+    existing_url = build_proxy_url(server="10.0.0.1")
+    fresh_url = build_proxy_url(server="10.0.0.2")
+
+    existing_proxy = await proxy_factory.create_async(
+        name="10.0.0.1", url=existing_url, source_id=old_source_id, latency=42, status=ProxyStatusEnum.enabled
+    )
+    existing_proxy_id = existing_proxy.id
+
+    async with (
+        mocked_github_get_proxies_by_source({new_source.url: f"{existing_url}\n{fresh_url}"}),
+        mocked_get_host_latency_for_urls(default_latency=77) as mocked_latency,
+    ):
+        response = await rest_client.post("/api/proxies")
+
+    assert response.status_code == status.HTTP_201_CREATED, response.text
+
+    mocked_latency.assert_awaited_once()
+    assert [str(proxy_to_ping.url) for proxy_to_ping in pinged_proxies(mocked_latency)] == [fresh_url]
+
+    proxies_in_db = await get_proxies_by_url(db_rollback_session)
+
+    assert sorted(proxies_in_db) == sorted([existing_url, fresh_url])
+
+    assert proxies_in_db[existing_url].id == existing_proxy_id
+    assert proxies_in_db[existing_url].source_id == old_source_id
+    assert proxies_in_db[existing_url].latency == 42
+
+    assert proxies_in_db[fresh_url].source_id == new_source_id
+    assert proxies_in_db[fresh_url].latency == 77
 
 
 async def test_save_proxies_when_all_proxies_already_exist(
@@ -225,9 +300,12 @@ async def test_save_proxies_when_all_proxies_already_exist(
         factory_cls=TelegramProxiesSourceFactory, session=db_rollback_session
     )
 
-    await proxies_source_factory.create_async(status=ProxySourceStatusEnum.enabled)
+    source = await proxies_source_factory.create_async(status=ProxySourceStatusEnum.enabled)
+    source_id = source.id
 
-    existing_proxy = await proxy_factory.create_async(latency=42)
+    # Источник у прокси задаём явно: иначе фабрика заведёт ещё один включённый источник,
+    # и сервис пойдёт в github дважды.
+    existing_proxy = await proxy_factory.create_async(latency=42, source_id=source_id)
     existing_proxy_id = existing_proxy.id
 
     async with mocked_github_get_proxies(existing_proxy.url) as mocked_github:
@@ -235,7 +313,7 @@ async def test_save_proxies_when_all_proxies_already_exist(
 
         assert mocked_github.routes[GITHUB_PROXIES_ROUTE_NAME].call_count == 1
 
-    assert response.status_code == status.HTTP_400_BAD_REQUEST, response.text
+    assert response.status_code == status.HTTP_202_ACCEPTED, response.text
 
     assert response.json()["error"] == {
         "meta": {"message": None},
@@ -246,6 +324,7 @@ async def test_save_proxies_when_all_proxies_already_exist(
     proxies_in_db = (await db_rollback_session.execute(select(TelegramProxy))).scalars().all()
 
     assert [proxy.id for proxy in proxies_in_db] == [existing_proxy_id]
+    assert [proxy.source_id for proxy in proxies_in_db] == [source_id]
 
 
 async def test_save_proxies_skips_urls_without_server_and_port(
@@ -268,7 +347,7 @@ async def test_save_proxies_skips_urls_without_server_and_port(
 
         assert mocked_github.routes[GITHUB_PROXIES_ROUTE_NAME].call_count == 1
 
-    assert response.status_code == status.HTTP_400_BAD_REQUEST, response.text
+    assert response.status_code == status.HTTP_202_ACCEPTED, response.text
 
     proxies_in_db = (await db_rollback_session.execute(select(TelegramProxy))).scalars().all()
 
@@ -286,7 +365,8 @@ async def test_save_proxies_sends_urls_over_chunk_size_to_taskiq(
         factory_cls=TelegramProxiesSourceFactory, session=db_rollback_session
     )
 
-    await proxies_source_factory.create_async(status=ProxySourceStatusEnum.enabled)
+    source = await proxies_source_factory.create_async(status=ProxySourceStatusEnum.enabled)
+    source_id = source.id
 
     total_proxies = CHUNK_SIZE_FOR_TESTS + PROXIES_OVER_CHUNK_SIZE
     all_urls = [build_proxy_url(server=f"10.0.0.{number}") for number in range(total_proxies)]
@@ -302,31 +382,32 @@ async def test_save_proxies_sends_urls_over_chunk_size_to_taskiq(
 
         assert mocked_github.routes[GITHUB_PROXIES_ROUTE_NAME].call_count == 1
 
-    assert response.status_code == status.HTTP_200_OK, response.text
+    assert response.status_code == status.HTTP_201_CREATED, response.text
+    assert response.content == b"null"
 
     mocked_latency.assert_awaited_once()
-    assert len(mocked_latency.await_args.kwargs["urls"]) == CHUNK_SIZE_FOR_TESTS
+    assert len(pinged_proxies(mocked_latency)) == CHUNK_SIZE_FOR_TESTS
 
     mocked_taskiq.assert_awaited_once()
     assert mocked_taskiq.await_args.args[0] is save_proxies_to_database_task
 
-    deferred_urls = mocked_taskiq.await_args.kwargs["params"]["urls"]
-    assert len(deferred_urls) == PROXIES_OVER_CHUNK_SIZE
+    deferred = deferred_source_urls(mocked_taskiq)
+    deferred_urls = [item["url"] for item in deferred]
 
-    data = response.json()["payload"]["data"]
-    assert len(data) == CHUNK_SIZE_FOR_TESTS
+    assert len(deferred) == PROXIES_OVER_CHUNK_SIZE
+    # "Хвост" уезжает в таску вместе с источником, иначе отложенные прокси сохранились бы без него.
+    assert {item["source_id"] for item in deferred} == {source_id}
 
-    proxies_in_db = (await db_rollback_session.execute(select(TelegramProxy))).scalars().all()
+    proxies_in_db = await get_proxies_by_url(db_rollback_session)
 
     assert len(proxies_in_db) == CHUNK_SIZE_FOR_TESTS
 
-    # Сервис берёт урлы из set().difference(), порядок недетерминированный:
-    # проверяем, что сохранённые и отложенные урлы не пересекаются и вместе дают исходный список.
-    saved_urls = {proxy.url for proxy in proxies_in_db}
+    saved_urls = set(proxies_in_db)
 
     assert saved_urls.isdisjoint(deferred_urls)
     assert saved_urls | set(deferred_urls) == set(all_urls)
 
-    for proxy in proxies_in_db:
+    for proxy in proxies_in_db.values():
         assert proxy.latency == 55
         assert proxy.status == ProxyStatusEnum.enabled
+        assert proxy.source_id == source_id

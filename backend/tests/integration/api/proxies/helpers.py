@@ -1,15 +1,19 @@
 from collections.abc import AsyncGenerator, Mapping
 from contextlib import asynccontextmanager
+from typing import Any, cast
 from unittest.mock import AsyncMock, patch
 
 import respx
 from httpx import URL, Response
 from respx import MockRouter
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.constants import PLAIN_TEXT_MEDIA_TYPE
 from app.core.proxies import services as proxy_services
 from app.core.proxies.constants import ProxyStatusEnum
-from app.core.proxies.dto import ProxyBaseDTO
+from app.core.proxies.dto import ProxyBaseDTO, ProxySourceToPingDTO
+from app.core.proxies.models import TelegramProxy
 from app.infra.gateways.github_gateway import GithubGateway
 from app.infra.taskiq.executor import TaskiqTasksExecutor
 from tests.support.factories.proxies import GITHUB_RAW_BASE_URL
@@ -22,6 +26,11 @@ MISSING_PROXY_ID = 999_999
 
 CHUNK_SIZE_FOR_TESTS = 5
 
+#: Имя kwarg, с которым сервис зовёт `GithubGateway.get_host_latency_for_urls`.
+PING_URLS_KWARG = "urls_with_source"
+#: Ключ в `params` таскик-задачи, под которым уезжает "хвост" урлов вместе с их источниками.
+DEFERRED_URLS_PARAM = "source_urls"
+
 
 def build_proxy_url(server: str, port: int = 443, secret: str = PROXY_SECRET) -> str:
     """
@@ -31,6 +40,36 @@ def build_proxy_url(server: str, port: int = 443, secret: str = PROXY_SECRET) ->
     (`ProxyRepository.update_proxies`) не найдёт запись: оно джойнится по `TelegramProxy.name`.
     """
     return str(URL(PROXY_URL_BASE, params={"server": server, "port": port, "secret": secret}))
+
+
+def pinged_proxies(mocked_latency: AsyncMock) -> list[ProxySourceToPingDTO]:
+    """Достаёт список `ProxySourceToPingDTO`, с которым сервис пошёл пинговать прокси."""
+    return list(mocked_latency.await_args.kwargs[PING_URLS_KWARG])
+
+
+def pinged_source_id_by_server(mocked_latency: AsyncMock) -> dict[str, int | None]:
+    """Мапа {server: source_id} из того, что сервис отдал в гейтвей на пинг."""
+    return {
+        proxy_to_ping.url.params["server"]: cast(int | None, proxy_to_ping.source_id)
+        for proxy_to_ping in pinged_proxies(mocked_latency)
+    }
+
+
+def deferred_source_urls(mocked_taskiq: AsyncMock) -> list[dict[str, Any]]:
+    """Достаёт "хвост" урлов, который сервис отправил в taskiq: список словарей source_id/url."""
+    return list(mocked_taskiq.await_args.kwargs["params"][DEFERRED_URLS_PARAM])
+
+
+async def get_proxies_by_name(session: AsyncSession) -> dict[str, TelegramProxy]:
+    """Все прокси из базы, разложенные по `name` — так удобнее сверять их с параметром `server`."""
+    proxies = (await session.execute(select(TelegramProxy))).scalars().all()
+    return {proxy.name: proxy for proxy in proxies}
+
+
+async def get_proxies_by_url(session: AsyncSession) -> dict[str, TelegramProxy]:
+    """Все прокси из базы, разложенные по `url`."""
+    proxies = (await session.execute(select(TelegramProxy))).scalars().all()
+    return {proxy.url: proxy for proxy in proxies}
 
 
 @asynccontextmanager
@@ -77,10 +116,17 @@ async def mocked_github_get_proxies_by_source(raw_proxies_by_source: Mapping[str
         yield respx_mock
 
 
-def _build_proxy_dto(url: URL, latency: int | None) -> ProxyBaseDTO:
+def _build_proxy_dto(proxy_to_ping: ProxySourceToPingDTO, latency: int | None) -> ProxyBaseDTO:
+    """
+    Собирает ответ гейтвея так же, как это делает боевой `GithubGateway.get_host_latency`.
+
+    Ключевое для тестов на источник: `source_id` берётся из входного `ProxySourceToPingDTO`
+    и уезжает дальше в репозиторий — именно по этой цепочке источник попадает в `TelegramProxy`.
+    """
     return ProxyBaseDTO(
-        url=url,
-        name=url.params.get("server", ""),
+        url=proxy_to_ping.url,
+        name=proxy_to_ping.url.params.get("server", ""),
+        source_id=cast(int | None, proxy_to_ping.source_id),
         latency=latency,
         status=ProxyStatusEnum.enabled if latency is not None else ProxyStatusEnum.disabled,
     )
@@ -97,15 +143,22 @@ async def mocked_get_host_latency_for_urls(
     :param latency_by_url: мапа {str(url): latency}. latency=None -> ProxyStatusEnum.disabled.
     :param default_latency: latency для урлов, которых нет в мапе.
 
-    Возвращает AsyncMock: у него можно смотреть await_count / await_args (`kwargs["urls"]`) и .return_value.
+    Возвращает AsyncMock: у него можно смотреть await_count / await_args
+    (`kwargs[PING_URLS_KWARG]` — список `ProxySourceToPingDTO`) и .return_value.
 
-    Порядок урлов в сервисе недетерминированный (там set().difference()),
+    Порядок урлов в сервисе задаётся порядком обхода источников,
     поэтому latency задаётся по урлу, а не по позиции в списке.
     """
     latency_map = latency_by_url or {}
 
-    async def _fake_get_host_latency_for_urls(urls: list[URL]) -> list[ProxyBaseDTO]:
-        return [_build_proxy_dto(url=url, latency=latency_map.get(str(url), default_latency)) for url in urls]
+    async def _fake_get_host_latency_for_urls(urls_with_source: list[ProxySourceToPingDTO]) -> list[ProxyBaseDTO]:
+        return [
+            _build_proxy_dto(
+                proxy_to_ping=proxy_to_ping,
+                latency=latency_map.get(str(proxy_to_ping.url), default_latency),
+            )
+            for proxy_to_ping in urls_with_source
+        ]
 
     mock = AsyncMock(side_effect=_fake_get_host_latency_for_urls)
 
@@ -146,11 +199,19 @@ async def mocked_get_host_latency(
     latency_by_url: dict[str, int | None] | None = None,
     default_latency: int | None = 100,
 ) -> AsyncGenerator[AsyncMock]:
+    """
+    Мокает `GithubGateway.get_host_latency` — пинг одной прокси.
+
+    Сервис зовёт его позиционно, поэтому в `await_args.args[0]` лежит `ProxySourceToPingDTO`
+    с `source_id` той прокси, которую обновляют.
+    """
     latency_map = latency_by_url or {}
 
-    async def _fake_get_host_latency(proxy_url: URL | str) -> ProxyBaseDTO:
-        url = URL(proxy_url) if isinstance(proxy_url, str) else proxy_url
-        return _build_proxy_dto(url=url, latency=latency_map.get(str(url), default_latency))
+    async def _fake_get_host_latency(proxy_url_with_source: ProxySourceToPingDTO) -> ProxyBaseDTO:
+        return _build_proxy_dto(
+            proxy_to_ping=proxy_url_with_source,
+            latency=latency_map.get(str(proxy_url_with_source.url), default_latency),
+        )
 
     mock = AsyncMock(side_effect=_fake_get_host_latency)
 
@@ -172,10 +233,13 @@ async def mocked_get_host_latency_by_server(
     """
     latency_map = latency_by_server or {}
 
-    async def _fake_get_host_latency_for_urls(urls: list[URL]) -> list[ProxyBaseDTO]:
+    async def _fake_get_host_latency_for_urls(urls_with_source: list[ProxySourceToPingDTO]) -> list[ProxyBaseDTO]:
         return [
-            _build_proxy_dto(url=url, latency=latency_map.get(url.params.get("server", ""), default_latency))
-            for url in urls
+            _build_proxy_dto(
+                proxy_to_ping=proxy_to_ping,
+                latency=latency_map.get(proxy_to_ping.url.params.get("server", ""), default_latency),
+            )
+            for proxy_to_ping in urls_with_source
         ]
 
     mock = AsyncMock(side_effect=_fake_get_host_latency_for_urls)

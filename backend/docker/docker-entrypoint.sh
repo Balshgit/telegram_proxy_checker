@@ -1,9 +1,17 @@
 #!/bin/bash
 set -e
 
+migrate() {
+    alembic upgrade "${ALEMBIC_REVISION:-head}"
+}
+
 server() {
     export HOST=${APP_HOST:-0.0.0.0}
     export PORT=${APP_PORT:-8000}
+    # Схема БД не создаётся приложением: перед стартом накатываем миграции.
+    if [ "${RUN_MIGRATIONS:-1}" = "1" ]; then
+        migrate
+    fi
     exec uvicorn --factory app.main:create_app --host ${HOST} --port ${PORT} --no-use-colors --no-access-log
 }
 
@@ -24,13 +32,18 @@ help() {
   echo ""
   echo "Usage:"
   echo ""
+  echo "migrate -- apply alembic migrations (ALEMBIC_REVISION, default: head)"
   echo "server -- start ${APP_NAME} backend"
   echo "taskiq_scheduler -- start ${APP_NAME} taskiq scheduler"
   echo "taskiq_worker -- start ${APP_NAME} taskiq worker"
   echo ""
 }
 
-case "$1" in
+case "${1:-help}" in
+  migrate)
+    shift
+    migrate
+    ;;
   server)
     shift
     server
@@ -44,7 +57,6 @@ case "$1" in
     taskiq_worker
     ;;
   *)
-    shift
     help
     ;;
 esac

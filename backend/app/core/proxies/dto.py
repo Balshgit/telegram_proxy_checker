@@ -1,10 +1,11 @@
 from dataclasses import dataclass, field
 from datetime import datetime
+from typing import Any
 
 from httpx import URL
 
 from app.core.proxies.constants import ProxySourceStatusEnum, ProxyStatusEnum, ProxyVendorNameEnum
-from app.core.types import Missing, MissingType
+from app.core.shared.types import Missing, MissingType
 
 
 @dataclass(slots=True, kw_only=True)
@@ -22,6 +23,7 @@ class ProxyFilterDTO:
 class ProxyBaseDTO:
     url: URL
     name: str
+    source_id: int | None
     latency: int | None = None
     status: ProxyStatusEnum
 
@@ -29,6 +31,7 @@ class ProxyBaseDTO:
 @dataclass(slots=True, kw_only=True)
 class ProxyDTO(ProxyBaseDTO):
     id: int
+    source_name: str | None
     created_at: datetime | None
     updated_at: datetime | None = None
 
@@ -55,3 +58,17 @@ class ProxySourceDTO:
     created_at: datetime | None = None
     updated_at: datetime | None = None
     proxies_count: int = 0
+    active_proxies_count: int = 0
+
+
+@dataclass(slots=True, kw_only=True, unsafe_hash=True)
+class ProxySourceToPingDTO:
+    source_id: int | None | MissingType
+    url: URL
+
+    def __post_init__(self) -> None:
+        self.source_id = None if self.source_id is Missing else self.source_id
+        self.url = URL(self.url) if isinstance(self.url, str) else self.url  # type: ignore[unreachable]
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"source_id": self.source_id, "url": str(self.url)}

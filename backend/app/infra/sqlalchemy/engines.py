@@ -32,7 +32,10 @@ class DatabaseEngines:
         await self.db.disconnect()
 
     async def create_all_tables(self) -> None:
-
+        """
+        Создаёт таблицы напрямую из metadata.
+        Используется только в тестах: в dev/production схема накатывается миграциями alembic.
+        """
         error = await self.db.create_tables()
         if error:
             logger.critical("invalid ddl schemas", error=repr(error))

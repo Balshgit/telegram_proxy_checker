@@ -7,7 +7,7 @@ from fastapi.responses import PlainTextResponse
 from starlette import status
 
 from app.api.base_deps import get_offset_pagination
-from app.api.base_schemas import OkResponse, PaginationResponseWithCounters
+from app.api.base_schemas import PaginationResponseWithCounters
 from app.api.constants import PLAIN_TEXT_MEDIA_TYPE
 from app.api.exceptions import ResourceNotFoundByIDError
 from app.api.proxies.exceptions import NoProxiesAddedAPIError
@@ -103,24 +103,23 @@ async def get_raw_proxies(
 @router.post(
     "/proxies",
     name="proxies:save_proxies",
-    status_code=status.HTTP_200_OK,
+    status_code=status.HTTP_201_CREATED,
     summary="Сохранение проксей",
     responses=build_responses(
-        status_code=status.HTTP_200_OK,
-        response_model=OkResponse[list[TelegramProxySerializer]],
+        status_code=status.HTTP_201_CREATED,
+        response_model=None,
         exceptions=(NoProxiesAddedAPIError,),
     ),
 )
 @inject
 async def save_proxies(
     proxy_service: Annotated[ProxyService, Depends(AsyncProvide[Container.services.proxy_service])],
-) -> OkResponse[list[TelegramProxySerializer]]:
+) -> None:
 
     try:
-        proxies = await proxy_service.add_new_proxies()
+        await proxy_service.add_new_proxies()
     except NoProxiesAddedException as exc:
         raise NoProxiesAddedAPIError() from exc
-    return OkResponse.new(status_code=status.HTTP_200_OK, model=list[TelegramProxySerializer], data=proxies)
 
 
 @router.delete(
@@ -157,11 +156,11 @@ async def delete_a_proxy(
 @router.patch(
     "/proxies/{proxy_id}",
     name="proxies:update_a_proxy",
-    status_code=status.HTTP_200_OK,
+    status_code=status.HTTP_202_ACCEPTED,
     summary="Обновление прокси",
     responses=build_responses(
-        status_code=status.HTTP_200_OK,
-        response_model=OkResponse[TelegramProxySerializer],
+        status_code=status.HTTP_202_ACCEPTED,
+        response_model=None,
         exceptions=(ResourceNotFoundByIDError,),
     ),
 )
@@ -170,16 +169,14 @@ async def update_a_proxy(
     proxy_id: Annotated[int, Path(..., description="Id прокси")],
     body: Annotated[UpdateProxyRequestSerializer, Body(..., description="Тело запроса")],
     proxy_service: Annotated[ProxyService, Depends(AsyncProvide[Container.services.proxy_service])],
-) -> OkResponse[TelegramProxySerializer]:
+) -> None:
 
     try:
-        proxy = await proxy_service.update_proxy(
+        await proxy_service.update_proxy(
             proxy_id=proxy_id, is_latency_update=body.is_latency_update, status=body.status
         )
     except ProxyNotFoundException as exc:
         raise ResourceNotFoundByIDError(resource_type=ResourceType.proxy, resource_id=proxy_id) from exc
-
-    return OkResponse.new(status_code=status.HTTP_200_OK, model=TelegramProxySerializer, data=proxy)
 
 
 @router.post(

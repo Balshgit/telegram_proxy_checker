@@ -11,7 +11,7 @@ from starlette import status
 
 from app.core.constants import MOSCOW_TZ
 from app.core.proxies.constants import ProxyOrderByEnum, ProxyStatusEnum
-from tests.support.factories.proxies import TelegramProxyFactory
+from tests.support.factories.proxies import TelegramProxiesSourceFactory, TelegramProxyFactory
 
 FAST_PROXY = "fast"
 SLOW_PROXY = "slow"
@@ -41,8 +41,14 @@ async def test_get_all_proxies(
     ],
 ) -> None:
     proxy_factory = await sqlalchemy_model_factory_maker(factory_cls=TelegramProxyFactory, session=db_rollback_session)
+    proxies_source_factory = await sqlalchemy_model_factory_maker(
+        factory_cls=TelegramProxiesSourceFactory, session=db_rollback_session
+    )
 
-    proxies = await proxy_factory.create_batch_async(size=3, latency=42)
+    source = await proxies_source_factory.create_async()
+    source_id, source_name = source.id, source.name
+
+    proxies = await proxy_factory.create_batch_async(size=3, latency=42, source_id=source_id)
 
     response = await rest_client.get("/api/proxies")
     assert response.status_code == status.HTTP_200_OK
@@ -60,6 +66,7 @@ async def test_get_all_proxies(
             "id": proxy_1.id,
             "name": proxy_1.name,
             "url": URL("tg://proxy", params=URL(proxy_1.url).params),
+            "source_name": source_name,
             "created_at": proxy_1.created_at.isoformat(),
             "updated_at": None,
             "status": proxy_1.status,
@@ -69,6 +76,7 @@ async def test_get_all_proxies(
             "id": proxy_2.id,
             "name": proxy_2.name,
             "url": URL("tg://proxy", params=URL(proxy_2.url).params),
+            "source_name": source_name,
             "created_at": proxy_2.created_at.isoformat(),
             "updated_at": None,
             "status": proxy_2.status,
@@ -78,6 +86,7 @@ async def test_get_all_proxies(
             "id": proxy_3.id,
             "name": proxy_3.name,
             "url": URL("tg://proxy", params=URL(proxy_3.url).params),
+            "source_name": source_name,
             "created_at": proxy_3.created_at.isoformat(),
             "updated_at": None,
             "status": proxy_3.status,
@@ -206,10 +215,18 @@ async def test_get_all_proxies_with_best_latency_on_top(
     ],
 ) -> None:
     proxy_factory = await sqlalchemy_model_factory_maker(factory_cls=TelegramProxyFactory, session=db_rollback_session)
+    proxies_source_factory = await sqlalchemy_model_factory_maker(
+        factory_cls=TelegramProxiesSourceFactory, session=db_rollback_session
+    )
 
-    proxy_1 = await proxy_factory.create_async(latency=543, updated_at=None)
-    proxy_2 = await proxy_factory.create_async(latency=42, updated_at=datetime.now(tz=MOSCOW_TZ).replace(tzinfo=None))
-    proxy_3 = await proxy_factory.create_async(latency=None)
+    source = await proxies_source_factory.create_async()
+    source_id, source_name = source.id, source.name
+
+    proxy_1 = await proxy_factory.create_async(latency=543, updated_at=None, source_id=source_id)
+    proxy_2 = await proxy_factory.create_async(
+        latency=42, updated_at=datetime.now(tz=MOSCOW_TZ).replace(tzinfo=None), source_id=source_id
+    )
+    proxy_3 = await proxy_factory.create_async(latency=None, source_id=source_id)
 
     active_proxy_count = len([proxy for proxy in [proxy_1, proxy_2, proxy_3] if proxy.status == "enabled"])
 
@@ -227,6 +244,7 @@ async def test_get_all_proxies_with_best_latency_on_top(
             "id": proxy_2.id,
             "name": proxy_2.name,
             "url": URL("tg://proxy", params=URL(proxy_2.url).params),
+            "source_name": source_name,
             "created_at": proxy_2.created_at.isoformat(),
             "updated_at": proxy_2.updated_at.isoformat(),
             "status": proxy_2.status,
@@ -236,6 +254,7 @@ async def test_get_all_proxies_with_best_latency_on_top(
             "id": proxy_1.id,
             "name": proxy_1.name,
             "url": URL("tg://proxy", params=URL(proxy_1.url).params),
+            "source_name": source_name,
             "created_at": proxy_1.created_at.isoformat(),
             "updated_at": None,
             "status": proxy_1.status,
@@ -245,6 +264,7 @@ async def test_get_all_proxies_with_best_latency_on_top(
             "id": proxy_3.id,
             "name": proxy_3.name,
             "url": URL("tg://proxy", params=URL(proxy_3.url).params),
+            "source_name": source_name,
             "created_at": proxy_3.created_at.isoformat(),
             "updated_at": None,
             "status": proxy_3.status,

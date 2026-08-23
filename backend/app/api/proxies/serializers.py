@@ -19,18 +19,19 @@ class TelegramProxySerializer(BaseModel):
 
     id: Annotated[int, Field(..., description="ID прокси")]
     name: Annotated[str, Field(..., description="Имя прокси")]
-    tg_proxy_url: Annotated[Url, Field(..., alias="url", description="Урл прокси")]
+    url: Annotated[Url, Field(..., description="Урл прокси")]
+    source_name: Annotated[str | None, Field(..., description="Название источника прокси")]
     created_at: Annotated[datetime, Field(..., description="Дата создания урла прокси")]
     updated_at: Annotated[datetime | None, Field(..., description="Дата обновления урла прокси")]
     status: Annotated[ProxyStatusEnum, Field(..., description="Статус прокси")]
     latency: Annotated[int | None, Field(..., description="Пинг до прокси в мс")]
 
-    @field_validator("tg_proxy_url", mode="before")
+    @field_validator("url", mode="before")
     @classmethod
     def url_validator(cls, value: URL) -> str:
         return str(value)
 
-    model_config = ConfigDict(from_attributes=True, validate_by_alias=False)
+    model_config = ConfigDict(from_attributes=True)
 
 
 class UpdateProxyRequestSerializer(BaseModel):
