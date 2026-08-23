@@ -1,20 +1,33 @@
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { describe, expect, it } from 'vitest'
 
-import type { TelegramProxy } from '../api/proxies'
+import type { TelegramProxy } from './api'
 import {
+  addFromSourcesLabel,
   ariaSortFor,
   buildPageItems,
-  copyToClipboard,
   DEFAULT_SORT,
   filteredTotalFor,
-  formatDate,
+  keepExistingSourceIds,
   latencyTone,
   nextSortState,
   proxyLabel,
   sortGlyph,
+  sourceLabel,
+  toggleSourceId,
   toOrderBy,
-  truncate,
-} from './proxiesPage.helpers'
+  UNKNOWN_SOURCE_LABEL,
+} from './helpers'
+
+const base: TelegramProxy = {
+  id: 42,
+  name: '',
+  url: 'https://t.me/proxy',
+  source_name: null,
+  created_at: '2024-05-01T10:00:00Z',
+  updated_at: null,
+  status: 'enabled',
+  latency: null,
+}
 
 describe('сортировка', () => {
   it('toOrderBy добавляет суффикс _desc только для убывания', () => {
@@ -79,22 +92,6 @@ describe('buildPageItems', () => {
   })
 })
 
-describe('formatDate', () => {
-  it('пустое значение показывает прочерком', () => {
-    expect(formatDate(null)).toBe('—')
-    expect(formatDate('')).toBe('—')
-  })
-
-  it('нераспознанную дату возвращает как есть', () => {
-    expect(formatDate('не дата')).toBe('не дата')
-  })
-
-  it('валидную дату форматирует в ru-RU', () => {
-    const formatted = formatDate('2024-05-01T10:30:00Z')
-    expect(formatted).toMatch(/^\d{2}\.\d{2}\.2024,?\s\d{2}:\d{2}$/u)
-  })
-})
-
 describe('latencyTone', () => {
   const cases: [number | null, string][] = [
     [null, 'none'],
@@ -111,28 +108,7 @@ describe('latencyTone', () => {
   })
 })
 
-describe('truncate', () => {
-  it('короткую строку не трогает', () => {
-    expect(truncate('abc', 5)).toBe('abc')
-    expect(truncate('abcde', 5)).toBe('abcde')
-  })
-
-  it('длинную обрезает и добавляет многоточие', () => {
-    expect(truncate('abcdef', 5)).toBe('abcde…')
-  })
-})
-
 describe('proxyLabel', () => {
-  const base: TelegramProxy = {
-    id: 42,
-    name: '',
-    url: 'https://t.me/proxy',
-    created_at: '2024-05-01T10:00:00Z',
-    updated_at: null,
-    status: 'enabled',
-    latency: null,
-  }
-
   it('использует имя, когда оно есть', () => {
     expect(proxyLabel({ ...base, name: 'Ленинград' })).toBe('«Ленинград»')
   })
@@ -144,6 +120,20 @@ describe('proxyLabel', () => {
   it('обрезает слишком длинное имя', () => {
     const label = proxyLabel({ ...base, name: 'я'.repeat(40) })
     expect(label).toBe(`«${'я'.repeat(32)}…»`)
+  })
+})
+
+describe('sourceLabel', () => {
+  it('показывает название источника из ответа бекенда', () => {
+    expect(sourceLabel({ ...base, source_name: 'MTProto list' })).toBe('MTProto list')
+  })
+
+  it('без источника подставляет понятную заглушку', () => {
+    expect(sourceLabel(base)).toBe(UNKNOWN_SOURCE_LABEL)
+  })
+
+  it('обрезает слишком длинное название', () => {
+    expect(sourceLabel({ ...base, source_name: 'и'.repeat(60) })).toBe(`${'и'.repeat(48)}…`)
   })
 })
 
@@ -162,50 +152,28 @@ describe('filteredTotalFor', () => {
   })
 })
 
-describe('copyToClipboard', () => {
-  afterEach(() => {
-    Reflect.deleteProperty(navigator, 'clipboard')
-    Reflect.deleteProperty(document, 'execCommand')
+describe('выбор источников', () => {
+  it('toggleSourceId добавляет id в конец и убирает повторный', () => {
+    expect(toggleSourceId([], 3)).toEqual([3])
+    expect(toggleSourceId([1, 2], 3)).toEqual([1, 2, 3])
+    expect(toggleSourceId([1, 2, 3], 2)).toEqual([1, 3])
   })
 
-  function stubClipboard(writeText: ((text: string) => Promise<void>) | undefined) {
-    Object.defineProperty(navigator, 'clipboard', {
-      value: writeText ? { writeText } : undefined,
-      configurable: true,
-      writable: true,
-    })
-  }
+  it('toggleSourceId не мутирует исходный список', () => {
+    const selected = [1, 2]
 
-  it('использует navigator.clipboard, когда он доступен', async () => {
-    const writeText = vi.fn(async () => {})
-    stubClipboard(writeText)
+    toggleSourceId(selected, 3)
 
-    await copyToClipboard('https://t.me/proxy')
-
-    expect(writeText).toHaveBeenCalledWith('https://t.me/proxy')
-    expect(document.querySelector('textarea')).toBeNull()
+    expect(selected).toEqual([1, 2])
   })
 
-  it('без Clipboard API падает обратно на execCommand и убирает за собой textarea', async () => {
-    stubClipboard(undefined)
-    const execCommand = vi.fn(() => true)
-    Object.defineProperty(document, 'execCommand', { value: execCommand, configurable: true, writable: true })
-
-    await copyToClipboard('текст')
-
-    expect(execCommand).toHaveBeenCalledWith('copy')
-    expect(document.querySelector('textarea')).toBeNull()
+  it('addFromSourcesLabel различает пустой выбор и отмеченные источники', () => {
+    expect(addFromSourcesLabel(0)).toBe('Добавить из всех')
+    expect(addFromSourcesLabel(2)).toBe('Добавить из выбранных (2)')
   })
 
-  it('бросает ошибку, если execCommand не сработал, и всё равно чистит DOM', async () => {
-    stubClipboard(undefined)
-    Object.defineProperty(document, 'execCommand', {
-      value: vi.fn(() => false),
-      configurable: true,
-      writable: true,
-    })
-
-    await expect(copyToClipboard('текст')).rejects.toThrow('execCommand("copy") вернул false')
-    expect(document.querySelector('textarea')).toBeNull()
+  it('keepExistingSourceIds выкидывает пропавшие источники', () => {
+    expect(keepExistingSourceIds([1, 2, 3], [2, 3, 4])).toEqual([2, 3])
+    expect(keepExistingSourceIds([1, 2], [])).toEqual([])
   })
 })

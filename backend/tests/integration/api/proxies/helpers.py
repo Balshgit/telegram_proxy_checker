@@ -20,7 +20,10 @@ from app.infra.taskiq.executor import TaskiqTasksExecutor
 
 GITHUB_PROXIES_ROUTE_NAME = "github_get_proxies"
 
-PROXY_URL_BASE = "https://proxy.example.com"
+#: Каноничная база урла прокси: ровно в таком виде прокси обязана лежать в базе.
+PROXY_URL_BASE = "https://t.me/proxy"
+#: Тот же прокси в схеме телеграм-приложения — источники отдают ссылки и так тоже.
+TG_PROXY_URL_BASE = "tg://proxy"
 PROXY_SECRET = "ee1337"
 MISSING_PROXY_ID = 999_999
 
@@ -32,14 +35,23 @@ PING_URLS_KWARG = "urls_with_source"
 DEFERRED_URLS_PARAM = "source_urls"
 
 
-def build_proxy_url(server: str, port: int = 443, secret: str = PROXY_SECRET) -> str:
+def build_proxy_url(server: str, port: int = 443, secret: str = PROXY_SECRET, base: str = PROXY_URL_BASE) -> str:
     """
     Строит урл прокси с параметрами server/port/secret ровно так, как их ждёт приложение.
 
     `name` у прокси в базе должен совпадать с параметром `server`, иначе массовое обновление
     (`ProxyRepository.update_proxies`) не найдёт запись: оно джойнится по `TelegramProxy.name`.
+
+    :param base: база урла. По умолчанию каноничная (`https://t.me/proxy`) — в таком виде прокси
+        и сохраняется в базу. Передайте `TG_PROXY_URL_BASE`, чтобы сэмулировать источник,
+        который отдаёт ссылки в схеме `tg://`.
     """
-    return str(URL(PROXY_URL_BASE, params={"server": server, "port": port, "secret": secret}))
+    return str(URL(base, params={"server": server, "port": port, "secret": secret}))
+
+
+def to_web_proxy_url(url: str) -> str:
+    """Ожидаемый вид урла в базе: параметры исходной ссылки, приклеенные к `https://t.me/proxy`."""
+    return str(URL(PROXY_URL_BASE, params=URL(url).params))
 
 
 def pinged_proxies(mocked_latency: AsyncMock) -> list[ProxySourceToPingDTO]:

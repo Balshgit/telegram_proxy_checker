@@ -13,6 +13,9 @@ from tests.support.factories.proxies_sources import TelegramProxiesSourceFactory
 from tests.support.factories.setup.async_persistence import FlushOnlyAsyncPersistence
 from tests.support.factories.setup.factory_setup import factory_random_choice, setup_factory
 
+#: Каноничная база урла прокси: только в таком виде прокси попадает в базу.
+WEB_PROXY_URL_BASE = "https://t.me/proxy"
+
 
 class TelegramProxyFactory(SQLAlchemyFactory[TelegramProxy]):
     #: `source_id` — внешний ключ на `proxies_sources`, случайное число от polyfactory уронило бы
@@ -24,12 +27,19 @@ class TelegramProxyFactory(SQLAlchemyFactory[TelegramProxy]):
 
     @classmethod
     def url(cls) -> str:
+        """
+        Урл прокси в том виде, в каком он лежит в базе: `https://t.me/proxy?server=...`.
+
+        Хост здесь не случайный намеренно: `ProxyService.add_new_proxies` нормализует все входящие
+        ссылки к `https://t.me/proxy`, поэтому фабрика должна отдавать уже каноничный урл — иначе
+        записи, созданные фабрикой, не совпадут с тем, что сохраняет сервис.
+        """
         params = {
             "server": cls.__faker__.hostname(),
             "port": cls.__faker__.random_int(min=1, max=9999),
             "secret": cls.__faker__.uuid4(),
         }
-        return str(URL(cls.__faker__.url(), params=urlencode(params)))
+        return str(URL(WEB_PROXY_URL_BASE, params=urlencode(params)))
 
     @classmethod
     def updated_at(cls) -> datetime | None:

@@ -4,27 +4,31 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import ProxiesPage from './ProxiesPage'
 import {
-  API_ERROR_CODES,
   ApiRequestError,
   createProxies,
   deleteAllProxies,
   deleteProxy,
   fetchProxies,
+  fetchProxy,
   fetchRawProxies,
   updateAllProxies,
   updateProxy,
-} from '../api/proxies'
-import type { ProxiesPageResult, TelegramProxy } from '../api/proxies'
+} from './api'
+import type { ProxiesPageResult, TelegramProxy } from './api'
+import { fetchProxiesSources } from '../proxies-sources/api'
+import type { ProxySource } from '../proxies-sources/api'
+import { UNKNOWN_SOURCE_LABEL } from './helpers'
 
 /**
- * Сетевой слой мокаем целиком, но настоящие ApiRequestError и API_ERROR_CODES
- * оставляем: компонент различает ошибки именно по ним.
+ * Сетевой слой мокаем целиком, но настоящий ApiRequestError оставляем:
+ * компонент отличает ошибки бекенда именно по нему.
  */
-vi.mock('../api/proxies', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../api/proxies')>()
+vi.mock('./api', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./api')>()
   return {
     ...actual,
     fetchProxies: vi.fn(),
+    fetchProxy: vi.fn(),
     fetchRawProxies: vi.fn(),
     createProxies: vi.fn(),
     updateAllProxies: vi.fn(),
@@ -34,10 +38,43 @@ vi.mock('../api/proxies', async (importOriginal) => {
   }
 })
 
+/** Выпадашка выбора источников в тулбаре тянет их из соседнего модуля. */
+vi.mock('../proxies-sources/api', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../proxies-sources/api')>()
+  return { ...actual, fetchProxiesSources: vi.fn() }
+})
+
+const githubSource: ProxySource = {
+  id: 7,
+  // Имя намеренно отличается от `source_name` проксей в таблице,
+  // иначе поиск по тексту не различал бы строку списка и пункт выпадашки.
+  name: 'Источник GitHub',
+  url: 'https://raw.githubusercontent.com/owner/repo/main/list.txt',
+  status: 'enabled',
+  vendor: 'GitHub',
+  created_at: '2024-05-01T10:00:00Z',
+  updated_at: null,
+  proxies_count: 120,
+  active_proxies_count: 34,
+}
+
+const backupSource: ProxySource = {
+  id: 9,
+  name: 'Резервный список',
+  url: 'https://example.com/proxies.txt',
+  status: 'enabled',
+  vendor: 'external',
+  created_at: '2024-05-02T10:00:00Z',
+  updated_at: null,
+  proxies_count: 5,
+  active_proxies_count: 1,
+}
+
 const proxyOne: TelegramProxy = {
   id: 1,
   name: 'Первая прокси',
   url: 'https://t.me/proxy?server=1',
+  source_name: 'MTProto list',
   created_at: '2024-05-01T10:00:00Z',
   updated_at: null,
   status: 'enabled',
@@ -48,6 +85,7 @@ const proxyTwo: TelegramProxy = {
   id: 2,
   name: 'Вторая прокси',
   url: 'https://t.me/proxy?server=2',
+  source_name: null,
   created_at: '2024-05-02T10:00:00Z',
   updated_at: '2024-05-03T10:00:00Z',
   status: 'enabled',
@@ -90,12 +128,14 @@ beforeEach(() => {
   stubClipboard()
 
   vi.mocked(fetchProxies).mockResolvedValue(pageResult())
+  vi.mocked(fetchProxy).mockResolvedValue(proxyOne)
   vi.mocked(fetchRawProxies).mockResolvedValue(['https://t.me/a', 'https://t.me/b'])
-  vi.mocked(createProxies).mockResolvedValue([])
+  vi.mocked(createProxies).mockResolvedValue('created')
   vi.mocked(updateAllProxies).mockResolvedValue(undefined)
   vi.mocked(deleteAllProxies).mockResolvedValue(undefined)
   vi.mocked(deleteProxy).mockResolvedValue(undefined)
-  vi.mocked(updateProxy).mockResolvedValue(proxyOne)
+  vi.mocked(updateProxy).mockResolvedValue(undefined)
+  vi.mocked(fetchProxiesSources).mockResolvedValue([githubSource, backupSource])
 })
 
 /** Рендерит страницу и дожидается, пока прогрузится первая порция данных. */
@@ -131,6 +171,14 @@ describe('загрузка списка', () => {
     const activeCard = screen.getByLabelText('Скопировать активные прокси в буфер обмена')
     expect(within(allCard).getByText('42')).toBeInTheDocument()
     expect(within(activeCard).getByText('30')).toBeInTheDocument()
+  })
+
+  it('под именем прокси показывает источник, из которого она получена', async () => {
+    await renderLoadedPage()
+
+    expect(screen.getByText('MTProto list')).toBeInTheDocument()
+    // У второй прокси источника нет — вместо пустоты понятная заглушка.
+    expect(screen.getByText(UNKNOWN_SOURCE_LABEL)).toBeInTheDocument()
   })
 
   it('по умолчанию запрашивает только активные прокси', async () => {
@@ -186,37 +234,28 @@ describe('загрузка списка', () => {
 })
 
 describe('добавление прокси', () => {
-  it('успешное добавление показывает тост и перезагружает список', async () => {
-    vi.mocked(createProxies).mockResolvedValue([proxyOne, proxyTwo])
+  it('успешное добавление показывает тост и перезагружает список (ответ 201 приходит без тела)', async () => {
+    vi.mocked(createProxies).mockResolvedValue('created')
     const user = await renderLoadedPage()
     const callsBefore = vi.mocked(fetchProxies).mock.calls.length
 
     await user.click(screen.getByTitle('Добавить прокси'))
 
-    expect(await screen.findByText('Добавлено проксей: 2')).toBeInTheDocument()
+    expect(await screen.findByText('Прокси добавлены')).toBeInTheDocument()
     await waitFor(() =>
       expect(vi.mocked(fetchProxies).mock.calls.length).toBeGreaterThan(callsBefore),
     )
   })
 
-  it('пустой ответ трактуется как «нечего добавлять», а не как ошибка', async () => {
-    vi.mocked(createProxies).mockResolvedValue([])
+  it('исход «нечего добавлять» показывается спокойным info-тостом и список не трогает', async () => {
+    vi.mocked(createProxies).mockResolvedValue('nothing-to-add')
     const user = await renderLoadedPage()
+    const callsBefore = vi.mocked(fetchProxies).mock.calls.length
 
     await user.click(screen.getByTitle('Добавить прокси'))
 
     expect(await screen.findByText('Новых прокси не нашлось')).toBeInTheDocument()
-  })
-
-  it('ошибка NoProxiesAddedError показывается спокойным info-тостом', async () => {
-    vi.mocked(createProxies).mockRejectedValue(
-      new ApiRequestError('No proxies added', 400, API_ERROR_CODES.noProxiesAdded),
-    )
-    const user = await renderLoadedPage()
-
-    await user.click(screen.getByTitle('Добавить прокси'))
-
-    expect(await screen.findByText('Новых прокси не нашлось')).toBeInTheDocument()
+    expect(vi.mocked(fetchProxies).mock.calls.length).toBe(callsBefore)
   })
 
   it('прочие ошибки показываются как ошибка', async () => {
@@ -226,6 +265,107 @@ describe('добавление прокси', () => {
     await user.click(screen.getByTitle('Добавить прокси'))
 
     expect(await screen.findByText('Источник недоступен')).toBeInTheDocument()
+  })
+
+  it('обычный клик собирает прокси из всех включённых источников', async () => {
+    const user = await renderLoadedPage()
+
+    await user.click(screen.getByTitle('Добавить прокси'))
+
+    await waitFor(() => expect(createProxies).toHaveBeenCalledWith({ sourceIds: [] }))
+    // Список источников для этого не нужен — лишнего запроса быть не должно.
+    expect(fetchProxiesSources).not.toHaveBeenCalled()
+  })
+})
+
+describe('выбор источников для добавления', () => {
+  /** Открывает выпадашку у кнопки «Добавить прокси» и дожидается списка источников. */
+  async function openSourcePicker(user: ReturnType<typeof setupUser>) {
+    await user.click(screen.getByLabelText('Выбрать источники'))
+    const picker = await screen.findByRole('dialog', { name: 'Собрать из источников' })
+    await within(picker).findByText('Источник GitHub')
+    return picker
+  }
+
+  it('выпадашка закрыта по умолчанию и открывается кнопкой «▾»', async () => {
+    const user = await renderLoadedPage()
+
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+
+    const picker = await openSourcePicker(user)
+
+    // Показываем только включённые источники: выключенные бекенд всё равно не опрашивает.
+    expect(fetchProxiesSources).toHaveBeenCalledWith({ status: 'enabled' })
+    expect(within(picker).getByText('Резервный список')).toBeInTheDocument()
+  })
+
+  it('шлёт id только отмеченных источников', async () => {
+    const user = await renderLoadedPage()
+    const picker = await openSourcePicker(user)
+
+    await user.click(within(picker).getByRole('checkbox', { name: /Резервный список/u }))
+    await user.click(within(picker).getByRole('button', { name: 'Добавить из выбранных (1)' }))
+
+    await waitFor(() => expect(createProxies).toHaveBeenCalledWith({ sourceIds: [backupSource.id] }))
+    expect(await screen.findByText('Прокси добавлены')).toBeInTheDocument()
+    // После добавления выпадашка закрывается.
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  })
+
+  it('без отметок кнопка добавляет из всех источников', async () => {
+    const user = await renderLoadedPage()
+    const picker = await openSourcePicker(user)
+
+    expect(
+      within(picker).getByText('Ничего не выбрано — прокси соберутся из всех включённых источников'),
+    ).toBeInTheDocument()
+
+    await user.click(within(picker).getByRole('button', { name: 'Добавить из всех' }))
+
+    await waitFor(() => expect(createProxies).toHaveBeenCalledWith({ sourceIds: [] }))
+  })
+
+  it('повторный клик по чекбоксу снимает отметку', async () => {
+    const user = await renderLoadedPage()
+    const picker = await openSourcePicker(user)
+
+    const checkbox = within(picker).getByRole('checkbox', { name: /Источник GitHub/u })
+    await user.click(checkbox)
+    expect(checkbox).toBeChecked()
+
+    await user.click(checkbox)
+    expect(checkbox).not.toBeChecked()
+    expect(within(picker).getByRole('button', { name: 'Добавить из всех' })).toBeInTheDocument()
+  })
+
+  it('ошибку загрузки источников показывает прямо в выпадашке', async () => {
+    vi.mocked(fetchProxiesSources).mockRejectedValue(new ApiRequestError('Бекенд недоступен', 503))
+    const user = await renderLoadedPage()
+
+    await user.click(screen.getByLabelText('Выбрать источники'))
+
+    expect(await screen.findByText('Бекенд недоступен')).toBeInTheDocument()
+    expect(screen.queryByRole('checkbox')).not.toBeInTheDocument()
+  })
+
+  it('когда включённых источников нет — подсказывает, где их завести', async () => {
+    vi.mocked(fetchProxiesSources).mockResolvedValue([])
+    const user = await renderLoadedPage()
+
+    await user.click(screen.getByLabelText('Выбрать источники'))
+
+    expect(
+      await screen.findByText('Включённых источников нет. Добавьте их на странице «Источники».'),
+    ).toBeInTheDocument()
+  })
+
+  it('закрывается по Escape', async () => {
+    const user = await renderLoadedPage()
+    await openSourcePicker(user)
+
+    await user.keyboard('{Escape}')
+
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
   })
 })
 
@@ -264,13 +404,17 @@ describe('массовые действия', () => {
     expect(deleteAllProxies).not.toHaveBeenCalled()
   })
 
-  it('«Обновить прокси» дёргает POST /api/proxies/status', async () => {
+  it('«Обновить прокси» дёргает POST /api/proxies/status и перезагружает список', async () => {
     const user = await renderLoadedPage()
+    const callsBefore = vi.mocked(fetchProxies).mock.calls.length
 
     await user.click(screen.getByTitle('Перепроверить все прокси'))
 
     await waitFor(() => expect(updateAllProxies).toHaveBeenCalledTimes(1))
     expect(await screen.findByText('Прокси обновлены')).toBeInTheDocument()
+    await waitFor(() =>
+      expect(vi.mocked(fetchProxies).mock.calls.length).toBeGreaterThan(callsBefore),
+    )
   })
 })
 
@@ -313,19 +457,23 @@ describe('копирование в буфер обмена', () => {
 })
 
 describe('действия над строкой', () => {
-  it('кнопка обновления просит бекенд перепинговать прокси', async () => {
-    vi.mocked(updateProxy).mockResolvedValue({ ...proxyOne, latency: 90 })
+  it('после PATCH строка дочитывается через GET /api/proxies/{id}, а не весь список', async () => {
+    vi.mocked(fetchProxy).mockResolvedValue({ ...proxyOne, latency: 90 })
     const user = await renderLoadedPage()
+    const callsBefore = vi.mocked(fetchProxies).mock.calls.length
 
     await user.click(screen.getByLabelText('Перепроверить прокси #1'))
 
     await waitFor(() => expect(updateProxy).toHaveBeenCalledWith(1, { isLatencyUpdate: true }))
+    await waitFor(() => expect(fetchProxy).toHaveBeenCalledWith(1))
     expect(await screen.findByText('Прокси «Первая прокси» проверена: 90 мс')).toBeInTheDocument()
     expect(screen.getByText('90 мс')).toBeInTheDocument()
+    // Список целиком не перезагружали — обновили только строку.
+    expect(vi.mocked(fetchProxies).mock.calls.length).toBe(callsBefore)
   })
 
   it('смена статуса шлёт PATCH и перезагружает список, если строка выпала из фильтра', async () => {
-    vi.mocked(updateProxy).mockResolvedValue({ ...proxyOne, status: 'disabled' })
+    vi.mocked(fetchProxy).mockResolvedValue({ ...proxyOne, status: 'disabled' })
     const user = await renderLoadedPage()
     const callsBefore = vi.mocked(fetchProxies).mock.calls.length
 
@@ -333,6 +481,18 @@ describe('действия над строкой', () => {
 
     await waitFor(() => expect(updateProxy).toHaveBeenCalledWith(1, { status: 'disabled' }))
     expect(await screen.findByText('Прокси «Первая прокси»: статус — Неактивен')).toBeInTheDocument()
+    await waitFor(() =>
+      expect(vi.mocked(fetchProxies).mock.calls.length).toBeGreaterThan(callsBefore),
+    )
+  })
+
+  it('если прокси после обновления не нашлась, перезагружает список целиком', async () => {
+    vi.mocked(fetchProxy).mockResolvedValue(null)
+    const user = await renderLoadedPage()
+    const callsBefore = vi.mocked(fetchProxies).mock.calls.length
+
+    await user.click(screen.getByLabelText('Перепроверить прокси #1'))
+
     await waitFor(() =>
       expect(vi.mocked(fetchProxies).mock.calls.length).toBeGreaterThan(callsBefore),
     )

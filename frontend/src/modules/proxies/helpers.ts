@@ -5,7 +5,8 @@
  * покрыть unit-тестами без рендера всего компонента.
  */
 
-import type { ProxyOrderBy, ProxyStatus, TelegramProxy } from '../api/proxies'
+import { truncate } from '../../shared/ui/format'
+import type { ProxyOrderBy, ProxyStatus, TelegramProxy } from './api'
 
 export const PAGE_SIZE_OPTIONS = [10, 25, 50, 100]
 
@@ -118,14 +119,53 @@ export const STATUS_FILTERS: { value: StatusFilter; label: string }[] = [
 ]
 
 /**
- * Штатный ответ бекенда «нечего добавлять»: в источнике не нашлось ни одной
+ * Штатный ответ бекенда «нечего добавлять»: в источниках не нашлось ни одной
  * прокси, которой ещё нет в базе. Это не ошибка, поэтому показываем спокойный
  * info-тост, а не красный «что-то сломалось».
  */
 export const NOTHING_TO_ADD_TOAST = {
   text: 'Новых прокси не нашлось',
-  hint: 'Источник не отдал ничего, чего ещё нет в списке. Загляните позже — список пополняется.',
+  hint: 'Источники не отдали ничего, чего ещё нет в списке. Загляните позже — список пополняется.',
 } as const
+
+/** Подпись под именем прокси: из какого источника она приехала. */
+export const UNKNOWN_SOURCE_LABEL = 'Источник неизвестен'
+
+/** Тексты выпадашки выбора источников у кнопки «Добавить прокси». */
+export const SOURCE_PICKER = {
+  title: 'Собрать из источников',
+  /** Пустой выбор = «обойти все включённые источники», как и трактует пустой `source_ids` бекенд. */
+  hint: 'Ничего не выбрано — прокси соберутся из всех включённых источников',
+  empty: 'Включённых источников нет. Добавьте их на странице «Источники».',
+  loadError: 'Не удалось загрузить источники',
+} as const
+
+/** Добавляет/убирает id в выборе источников, сохраняя порядок отметки. */
+export function toggleSourceId(selected: number[], sourceId: number): number[] {
+  return selected.includes(sourceId)
+    ? selected.filter((id) => id !== sourceId)
+    : [...selected, sourceId]
+}
+
+/** Подпись кнопки в выпадашке: явно говорит, сколько источников будет опрошено. */
+export function addFromSourcesLabel(selectedCount: number): string {
+  return selectedCount === 0 ? 'Добавить из всех' : `Добавить из выбранных (${selectedCount})`
+}
+
+/**
+ * Отсекает из выбора источники, которых больше нет в списке.
+ *
+ * Список источников перечитывается при каждом открытии выпадашки, и за это время
+ * источник могли удалить или выключить — отправлять его id на бекенд бессмысленно.
+ */
+export function keepExistingSourceIds(selected: number[], availableIds: number[]): number[] {
+  const available = new Set(availableIds)
+  return selected.filter((id) => available.has(id))
+}
+
+export function sourceLabel(proxy: TelegramProxy): string {
+  return proxy.source_name ? truncate(proxy.source_name, 48) : UNKNOWN_SOURCE_LABEL
+}
 
 /**
  * Собирает список страниц вида «1 … 4 5 6 … 20»:
@@ -154,23 +194,6 @@ export function buildPageItems(currentPage: number, totalPages: number): PageIte
   return items
 }
 
-export function formatDate(value: string | null): string {
-  if (!value) {
-    return '—'
-  }
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) {
-    return value
-  }
-  return new Intl.DateTimeFormat('ru-RU', {
-    day: '2-digit',
-    month: '2-digit',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  }).format(date)
-}
-
 export function latencyTone(latency: number | null): string {
   if (latency == null) {
     return 'none'
@@ -182,10 +205,6 @@ export function latencyTone(latency: number | null): string {
     return 'medium'
   }
   return 'bad'
-}
-
-export function truncate(value: string, max: number): string {
-  return value.length > max ? `${value.slice(0, max)}…` : value
 }
 
 /** Как называть прокси в тостах и подписях: по имени, а если его нет — по id. */
@@ -205,31 +224,4 @@ export function filteredTotalFor(statusFilter: StatusFilter, total: number, acti
     return Math.max(0, total - activeCount)
   }
   return total
-}
-
-/**
- * Копирование с запасным вариантом: `navigator.clipboard` доступен только в
- * secure context (https или localhost), а фронт могут открыть и по http.
- */
-export async function copyToClipboard(text: string): Promise<void> {
-  if (navigator.clipboard?.writeText) {
-    await navigator.clipboard.writeText(text)
-    return
-  }
-
-  const textarea = document.createElement('textarea')
-  textarea.value = text
-  textarea.setAttribute('readonly', '')
-  textarea.style.position = 'fixed'
-  textarea.style.opacity = '0'
-  document.body.appendChild(textarea)
-
-  try {
-    textarea.select()
-    if (!document.execCommand('copy')) {
-      throw new Error('execCommand("copy") вернул false')
-    }
-  } finally {
-    document.body.removeChild(textarea)
-  }
 }
