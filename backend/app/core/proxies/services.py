@@ -144,8 +144,6 @@ class ProxyService:
             await self.proxy_source_service.recalculate_counters(session=session)
 
     async def update_all_proxies(self) -> None:
-        # Удаление дублей и обновление оставшихся проксей едут одной транзакцией:
-        # иначе упавшее обновление оставило бы базу без уже удалённых дублей.
         async with self.repository.get_transactional_session() as session:
             existing_proxies = await self.repository.get_all_proxies(session=session)
 
