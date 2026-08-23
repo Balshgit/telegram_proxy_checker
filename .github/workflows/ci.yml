@@ -97,7 +97,7 @@ jobs:
 
       - name: Run integration tests
         run: |
-          uv run pytest tests/integration \
+          uv run pytest tests \
             --verbose \
             --cov=app \
             --cov-branch \
