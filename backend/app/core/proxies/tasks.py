@@ -5,6 +5,7 @@ from taskiq import Context, TaskiqDepends
 
 from app.core.proxies.constants import SAVE_POSTGRES_CHUNK_SIZE
 from app.core.proxies.dto import ProxySourceToPingDTO
+from app.core.proxies.utils import collect_source_ids
 from app.core.shared.utils import log_taskiq_decorator
 
 if typing.TYPE_CHECKING:
@@ -24,7 +25,12 @@ async def save_proxies_to_database_task(
 
     for urls_chunk in batched(source_urls_dtos, SAVE_POSTGRES_CHUNK_SIZE):  # noqa: B911
         proxies = await github_gateway.get_host_latency_for_urls(urls_with_source=list(urls_chunk))
-        await proxy_repository.save_proxies(proxies_dto=proxies)
+
+        async with proxy_repository.get_transactional_session() as session:
+            await proxy_repository.save_proxies(proxies_dto=proxies, session=session)
+            await proxy_repository.recalculate_proxies_sources_counters(
+                source_ids=collect_source_ids(proxies), session=session
+            )
 
 
 @log_taskiq_decorator
@@ -38,7 +44,12 @@ async def update_proxies_in_database_task(
 
     for urls_chunk in batched(source_urls_dtos, SAVE_POSTGRES_CHUNK_SIZE):  # noqa: B911
         proxies = await github_gateway.get_host_latency_for_urls(urls_with_source=list(urls_chunk))
-        await proxy_repository.update_proxies(proxies_dto=proxies)
+
+        async with proxy_repository.get_transactional_session() as session:
+            await proxy_repository.update_proxies(proxies_dto=proxies, session=session)
+            await proxy_repository.recalculate_proxies_sources_counters(
+                source_ids=collect_source_ids(proxies), session=session
+            )
 
 
 @log_taskiq_decorator

@@ -42,6 +42,7 @@ proxies_sources = sa.table(
     sa.column("status", sa.String),
     sa.column("vendor", sa.String),
     sa.column("proxies_count", sa.Integer),
+    sa.column("active_proxies_count", sa.Integer),
     sa.column("created_at", sa.DateTime),
     schema=SCHEMA,
 )
@@ -57,6 +58,7 @@ def upgrade() -> None:
                     "status": SOURCE_STATUS_ENABLED,
                     "vendor": SOURCE_VENDOR_GITHUB,
                     "proxies_count": 0,
+                    "active_proxies_count": 0,
                     "created_at": sa.func.now(),
                 }
                 for source in DEFAULT_SOURCES

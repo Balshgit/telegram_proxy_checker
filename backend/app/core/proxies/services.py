@@ -17,6 +17,7 @@ from app.core.proxies.exceptions import NoProxiesAddedException
 from app.core.proxies.models import TelegramProxy
 from app.core.proxies.repositories import ProxyRepository
 from app.core.proxies.tasks import save_proxies_to_database_task, update_proxies_in_database_task
+from app.core.proxies.utils import collect_source_ids
 from app.infra.gateways.github_gateway import GithubGateway
 from app.infra.taskiq.executor import TaskiqTasksExecutor
 
@@ -41,7 +42,6 @@ class ProxyService:
 
     async def add_new_proxies(self) -> list[TelegramProxy]:
         proxy_sources = await self.repository.get_all_proxies_sources(status=ProxySourceStatusEnum.enabled)
-        proxy_sources_map = {ps.id: ps for ps in proxy_sources}
 
         coros = [self.github_gateway.get_urls_for_ping(proxy_source=ps) for ps in proxy_sources]
 
@@ -67,8 +67,10 @@ class ProxyService:
             urls_with_source=urls_for_ping[:SAVE_POSTGRES_CHUNK_SIZE]
         )
         async with self.repository.get_transactional_session() as session:
-            proxies = await self.repository.save_proxies(proxies_dto=proxies_dtos, session=None)
-
+            proxies = await self.repository.save_proxies(proxies_dto=proxies_dtos, session=session)
+            await self.repository.recalculate_proxies_sources_counters(
+                source_ids=collect_source_ids(proxies_dtos), session=session
+            )
 
         if all_next_proxies := urls_for_ping[SAVE_POSTGRES_CHUNK_SIZE:]:
             await self.taskiq_tasks_executor.run(
@@ -94,10 +96,15 @@ class ProxyService:
                 latency = proxy_base_dto.latency
 
             await self.repository.update_proxy(proxy, latency=latency, status=status, session=session)
+            await self.repository.recalculate_proxies_sources_counters(
+                source_ids={proxy.source_id} if proxy.source_id else None, session=session
+            )
             return proxy
 
     async def delete_all_proxies(self) -> None:
-        await self.repository.delete_all_proxies()
+        async with self.repository.get_transactional_session() as session:
+            await self.repository.delete_all_proxies(session=session)
+            await self.repository.recalculate_proxies_sources_counters(session=session)
 
     async def update_all_proxies(self) -> None:
         existing_proxies = await self.repository.get_all_proxies()
@@ -112,7 +119,11 @@ class ProxyService:
         if not proxies_dtos:
             return
 
-        await self.repository.update_proxies(proxies_dtos)
+        async with self.repository.get_transactional_session() as session:
+            await self.repository.update_proxies(proxies_dtos, session=session)
+            await self.repository.recalculate_proxies_sources_counters(
+                source_ids=collect_source_ids(proxies_dtos), session=session
+            )
 
         if all_next_existing_proxies := existing_proxies_urls[SAVE_POSTGRES_CHUNK_SIZE:]:
             await self.taskiq_tasks_executor.run(
@@ -121,4 +132,9 @@ class ProxyService:
             )
 
     async def delete_proxy_by_id(self, proxy_id: int) -> None:
-        await self.repository.delete_proxy_by_id(proxy_id=proxy_id)
+        async with self.repository.get_transactional_session() as session:
+            # Удаление идемпотентно: `source_id` приходит из `RETURNING`, и его нет, если удалять было нечего.
+            source_id = await self.repository.delete_proxy_by_id(proxy_id=proxy_id, session=session)
+
+            if source_id is not None:
+                await self.repository.recalculate_proxies_sources_counters(source_ids={source_id}, session=session)

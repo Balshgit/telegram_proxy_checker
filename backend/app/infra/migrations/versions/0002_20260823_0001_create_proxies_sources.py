@@ -29,7 +29,20 @@ def upgrade() -> None:
         sa.Column("vendor", sa.String(length=50), nullable=False, comment="Source vendor"),
         sa.Column("created_at", sa.DateTime(), nullable=False),
         sa.Column("updated_at", sa.DateTime(), nullable=True),
-        sa.Column("proxies_count", sa.Integer(), nullable=False, comment="Proxies from this source"),
+        sa.Column(
+            "proxies_count",
+            sa.Integer(),
+            nullable=False,
+            server_default="0",
+            comment="All proxies count from this source",
+        ),
+        sa.Column(
+            "active_proxies_count",
+            sa.Integer(),
+            nullable=False,
+            server_default="0",
+            comment="Active proxies count from this source",
+        ),
         sa.PrimaryKeyConstraint("id"),
         schema=SCHEMA,
     )

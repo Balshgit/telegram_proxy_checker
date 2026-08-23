@@ -33,7 +33,20 @@ class TelegramProxiesSource(DBBase):
     )
     created_at: Mapped[datetime] = mapped_column("created_at", DateTime, default=func.now())
     updated_at: Mapped[datetime | None] = mapped_column("updated_at", DateTime)
-    proxies_count: Mapped[int] = mapped_column("proxies_count", Integer, comment="Proxies from this source", default=0)
+    proxies_count: Mapped[int] = mapped_column(
+        "proxies_count",
+        Integer,
+        server_default="0",
+        default=0,
+        comment="All proxies count from this source",
+    )
+    active_proxies_count: Mapped[int] = mapped_column(
+        "active_proxies_count",
+        Integer,
+        server_default="0",
+        default=0,
+        comment="Active proxies count from this source",
+    )
 
 
 class TelegramProxy(DBBase):

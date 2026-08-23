@@ -161,11 +161,22 @@ class ProxyRepository(BaseDBRepository):
             result = await wrapped_session.execute(query)
             return list(result.scalars().all())
 
-    async def delete_proxy_by_id(self, proxy_id: int, session: AsyncSession | None = None) -> None:
-        query = delete(TelegramProxy).where(TelegramProxy.id == proxy_id)
+    async def delete_proxy_by_id(self, proxy_id: int, session: AsyncSession | None = None) -> int | None:
+        """
+        Удаляет прокси по id и отдаёт `source_id` удалённой записи, чтобы пересчитать счётчики источника.
+
+        Возвращает `None`, если прокси не было (удаление идемпотентно) либо она была без источника.
+        """
+        query = (
+            delete(TelegramProxy)
+            .where(TelegramProxy.id == proxy_id)
+            .returning(TelegramProxy.source_id)
+            .execution_options(synchronize_session=False)
+        )
 
         async with self.session_wrap(session) as wrapped_session:
-            await wrapped_session.execute(query)
+            result = await wrapped_session.execute(query)
+            return result.scalars().first()
 
     async def get_all_proxies_sources(
         self, status: ProxySourceStatusEnum | None = None, session: AsyncSession | None = None
@@ -187,6 +198,7 @@ class ProxyRepository(BaseDBRepository):
                 created_at=source.created_at,
                 updated_at=source.updated_at,
                 proxies_count=source.proxies_count,
+                active_proxies_count=source.active_proxies_count,
             )
             for source in result
         ]
@@ -203,6 +215,7 @@ class ProxyRepository(BaseDBRepository):
             status=proxy_source_dto.status,
             vendor=proxy_source_dto.vendor,
             proxies_count=proxy_source_dto.proxies_count,
+            active_proxies_count=proxy_source_dto.active_proxies_count,
             created_at=proxy_source_dto.created_at if proxy_source_dto.created_at else func.now(),
             **kwargs,
         )
@@ -228,12 +241,51 @@ class ProxyRepository(BaseDBRepository):
             status=proxy_source_dto.status,
             vendor=proxy_source_dto.vendor,
             proxies_count=proxy_source_dto.proxies_count,
+            active_proxies_count=proxy_source_dto.active_proxies_count,
             updated_at=proxy_source_dto.updated_at if proxy_source_dto.updated_at else func.now(),
             **kwargs,
         )
 
         async with self.session_wrap(session) as wrapped_session:
             await wrapped_session.refresh(proxy_source)
+
+    async def recalculate_proxies_sources_counters(
+        self, source_ids: set[int] | None = None, session: AsyncSession | None = None
+    ) -> None:
+        if source_ids is not None and not source_ids:
+            return
+
+        proxies_count = (
+            select(func.count(TelegramProxy.id))
+            .where(TelegramProxy.source_id == TelegramProxiesSource.id)
+            .correlate(TelegramProxiesSource)
+            .scalar_subquery()
+        )
+        active_proxies_count = (
+            select(func.count(TelegramProxy.id))
+            .where(
+                TelegramProxy.source_id == TelegramProxiesSource.id,
+                TelegramProxy.status == ProxyStatusEnum.enabled,
+            )
+            .correlate(TelegramProxiesSource)
+            .scalar_subquery()
+        )
+
+        query = (
+            update(TelegramProxiesSource)
+            .values(
+                proxies_count=proxies_count,
+                active_proxies_count=active_proxies_count,
+                updated_at=func.now(),
+            )
+            .execution_options(synchronize_session=False)
+        )
+
+        if source_ids is not None:
+            query = query.where(TelegramProxiesSource.id.in_(list(source_ids)))
+
+        async with self.session_wrap(session) as wrapped_session:
+            await wrapped_session.execute(query)
 
     async def delete_proxies_source_by_id(self, proxy_source_id: int, session: AsyncSession | None = None) -> None:
 

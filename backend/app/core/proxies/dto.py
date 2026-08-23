@@ -57,6 +57,7 @@ class ProxySourceDTO:
     created_at: datetime | None = None
     updated_at: datetime | None = None
     proxies_count: int = 0
+    active_proxies_count: int = 0
 
 
 @dataclass(slots=True, kw_only=True, unsafe_hash=True)
