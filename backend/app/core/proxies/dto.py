@@ -5,7 +5,7 @@ from typing import Any
 from httpx import URL
 
 from app.core.proxies.constants import ProxySourceStatusEnum, ProxyStatusEnum, ProxyVendorNameEnum
-from app.core.types import Missing, MissingType
+from app.core.shared.types import Missing, MissingType
 
 
 @dataclass(slots=True, kw_only=True)
@@ -31,6 +31,7 @@ class ProxyBaseDTO:
 @dataclass(slots=True, kw_only=True)
 class ProxyDTO(ProxyBaseDTO):
     id: int
+    source_name: str | None
     created_at: datetime | None
     updated_at: datetime | None = None
 

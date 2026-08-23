@@ -11,7 +11,7 @@ from loguru import logger
 from app.core.concurrency import run_async
 from app.core.proxies.constants import PROXY_PING_TIMEOUT, ProxyStatusEnum
 from app.core.proxies.dto import ProxyBaseDTO, ProxyServerDTO, ProxySourceDTO, ProxySourceToPingDTO
-from app.core.types import Missing
+from app.core.shared.types import Missing
 from app.infra.adapters.http_adapter import BaseHttpAdapter
 
 

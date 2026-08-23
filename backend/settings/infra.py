@@ -5,7 +5,7 @@ from functools import cached_property
 from pydantic import PostgresDsn, computed_field
 from pydantic_settings import BaseSettings
 
-from app.core.types import IntervalSeconds
+from app.core.shared.types import IntervalSeconds
 
 
 class TaskiqSettings(BaseSettings):

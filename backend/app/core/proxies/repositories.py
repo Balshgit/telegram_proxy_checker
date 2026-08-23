@@ -6,7 +6,7 @@ from sqlakeyset import Page
 from sqlalchemy import ColumnElement, Integer, cast, delete, func, select, update, values
 from sqlalchemy.exc import NoResultFound
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import joinedload
+from sqlalchemy.orm import joinedload, load_only
 
 from app.core.pagination import OffsetPagination, core_get_page
 from app.core.proxies.constants import ProxyOrderByEnum, ProxySourceStatusEnum, ProxyStatusEnum
@@ -14,7 +14,7 @@ from app.core.proxies.dto import ProxyBaseDTO, ProxyCountersDTO, ProxyFilterDTO,
 from app.core.proxies.exceptions import ProxyNotFoundException
 from app.core.proxies.models import TelegramProxiesSource, TelegramProxy
 from app.core.repositories import BaseDBRepository
-from app.core.types import Missing
+from app.core.shared.types import Missing
 
 
 @dataclass
@@ -60,7 +60,11 @@ class ProxyRepository(BaseDBRepository):
             ProxyOrderByEnum.latency_desc: TelegramProxy.latency.desc(),
         }
 
-        query = select(TelegramProxy).order_by(order_by_clause[order_by], TelegramProxy.id)
+        query = (
+            select(TelegramProxy)
+            .options(joinedload(TelegramProxy.source).options(load_only(TelegramProxiesSource.name)))
+            .order_by(order_by_clause[order_by], TelegramProxy.id)
+        )
 
         total_count_query = select(func.count(TelegramProxy.id))
         active_count_query = total_count_query.where(TelegramProxy.status == ProxyStatusEnum.enabled)

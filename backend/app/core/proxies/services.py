@@ -12,7 +12,7 @@ from app.core.proxies.constants import (
     ProxySourceStatusEnum,
     ProxyStatusEnum,
 )
-from app.core.proxies.dto import ProxyCountersDTO, ProxyFilterDTO, ProxySourceToPingDTO
+from app.core.proxies.dto import ProxyCountersDTO, ProxyDTO, ProxyFilterDTO, ProxySourceToPingDTO
 from app.core.proxies.exceptions import NoProxiesAddedException
 from app.core.proxies.models import TelegramProxy
 from app.core.proxies.repositories import ProxyRepository
@@ -33,14 +33,31 @@ class ProxyService:
         filters: ProxyFilterDTO,
         pagination: OffsetPagination,
         order_by: ProxyOrderByEnum = ProxyOrderByEnum.latency,
-    ) -> tuple[Page[list[TelegramProxy]], ProxyCountersDTO]:
-        return await self.repository.get_paginated_proxies(filters=filters, pagination=pagination, order_by=order_by)
+    ) -> tuple[Page[list[ProxyDTO]], ProxyCountersDTO]:
+        proxies_page, counters = await self.repository.get_paginated_proxies(
+            filters=filters, pagination=pagination, order_by=order_by
+        )
+        proxies = [
+            ProxyDTO(
+                id=proxy.id,
+                source_name=proxy.source.name,
+                created_at=proxy.created_at,
+                updated_at=proxy.updated_at,
+                url=proxy.tg_proxy_url,
+                name=proxy.name,
+                source_id=proxy.source_id,
+                latency=proxy.latency,
+                status=proxy.status,
+            )
+            for proxy in proxies_page
+        ]
+        return Page(proxies, proxies_page.paging), counters  # type: ignore[arg-type]
 
     async def get_raw_proxies_urls(self, status: ProxyStatusEnum | None) -> str:
         urls = await self.repository.get_proxies_urls(status=status)
         return "\n".join(url for url in urls)
 
-    async def add_new_proxies(self) -> list[TelegramProxy]:
+    async def add_new_proxies(self) -> None:
         proxy_sources = await self.repository.get_all_proxies_sources(status=ProxySourceStatusEnum.enabled)
 
         coros = [self.github_gateway.get_urls_for_ping(proxy_source=ps) for ps in proxy_sources]
@@ -67,7 +84,7 @@ class ProxyService:
             urls_with_source=urls_for_ping[:SAVE_POSTGRES_CHUNK_SIZE]
         )
         async with self.repository.get_transactional_session() as session:
-            proxies = await self.repository.save_proxies(proxies_dto=proxies_dtos, session=session)
+            await self.repository.save_proxies(proxies_dto=proxies_dtos, session=session)
             await self.repository.recalculate_proxies_sources_counters(
                 source_ids=collect_source_ids(proxies_dtos), session=session
             )
@@ -77,7 +94,6 @@ class ProxyService:
                 save_proxies_to_database_task,
                 params={"source_urls": [su.to_dict() for su in all_next_proxies]},
             )
-        return proxies
 
     async def update_proxy(
         self, proxy_id: int, is_latency_update: bool = False, status: ProxyStatusEnum | None = None
