@@ -14,9 +14,9 @@ from app.core.proxies import services as proxy_services
 from app.core.proxies.constants import ProxyStatusEnum
 from app.core.proxies.dto import ProxyBaseDTO, ProxySourceToPingDTO
 from app.core.proxies.models import TelegramProxy
+from app.core.proxies_sources.constants import GITHUB_RAW_BASE_URL
 from app.infra.gateways.github_gateway import GithubGateway
 from app.infra.taskiq.executor import TaskiqTasksExecutor
-from tests.support.factories.proxies import GITHUB_RAW_BASE_URL
 
 GITHUB_PROXIES_ROUTE_NAME = "github_get_proxies"
 
@@ -70,6 +70,18 @@ async def get_proxies_by_url(session: AsyncSession) -> dict[str, TelegramProxy]:
     """Все прокси из базы, разложенные по `url`."""
     proxies = (await session.execute(select(TelegramProxy))).scalars().all()
     return {proxy.url: proxy for proxy in proxies}
+
+
+async def get_proxies_by_id(session: AsyncSession) -> dict[int, TelegramProxy]:
+    """
+    Все прокси из базы, разложенные по `id`, с принудительным перечитыванием из базы.
+
+    `populate_existing` обязателен: после `DELETE ... ON DELETE SET NULL` на источнике объекты
+    в identity map остаются со старыми значениями, и без перечитывания тест проверял бы кэш, а не базу.
+    """
+    query = select(TelegramProxy).execution_options(populate_existing=True)
+    proxies = (await session.execute(query)).scalars().all()
+    return {proxy.id: proxy for proxy in proxies}
 
 
 @asynccontextmanager

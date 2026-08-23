@@ -38,3 +38,14 @@ class UpdateProxyRequestSerializer(BaseModel):
 
     status: Annotated[ProxyStatusEnum | None, Field(default=None, description="Статус прокси")]
     is_latency_update: Annotated[bool, Field(default=False, description="Нужно ли обновить латенси")]
+
+
+class SaveProxiesRequestSerializer(BaseModel):
+
+    source_ids: Annotated[
+        list[int] | None,
+        Field(
+            default=None,
+            description="ID источников, которые нужно опросить. Если не передано опрашиваем все включённые источники",
+        ),
+    ]

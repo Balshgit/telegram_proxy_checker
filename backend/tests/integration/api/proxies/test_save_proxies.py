@@ -6,9 +6,10 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette import status
 
-from app.core.proxies.constants import ProxySourceStatusEnum, ProxyStatusEnum
+from app.core.proxies.constants import ProxyStatusEnum
 from app.core.proxies.models import TelegramProxy
 from app.core.proxies.tasks import save_proxies_to_database_task
+from app.core.proxies_sources.constants import ProxySourceStatusEnum
 from tests.integration.api.proxies.helpers import (
     CHUNK_SIZE_FOR_TESTS,
     GITHUB_PROXIES_ROUTE_NAME,
@@ -23,7 +24,8 @@ from tests.integration.api.proxies.helpers import (
     pinged_proxies,
     source_route_name,
 )
-from tests.support.factories.proxies import TelegramProxiesSourceFactory, TelegramProxyFactory
+from tests.support.factories.proxies import TelegramProxyFactory
+from tests.support.factories.proxies_sources import TelegramProxiesSourceFactory
 
 PROXIES_OVER_CHUNK_SIZE = 2
 

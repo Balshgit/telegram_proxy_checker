@@ -6,18 +6,15 @@ from sqlakeyset import Page
 
 from app.core.concurrency import run_async
 from app.core.pagination import OffsetPagination
-from app.core.proxies.constants import (
-    SAVE_POSTGRES_CHUNK_SIZE,
-    ProxyOrderByEnum,
-    ProxySourceStatusEnum,
-    ProxyStatusEnum,
-)
+from app.core.proxies.constants import SAVE_POSTGRES_CHUNK_SIZE, ProxyOrderByEnum, ProxyStatusEnum
 from app.core.proxies.dto import ProxyCountersDTO, ProxyDTO, ProxyFilterDTO, ProxySourceToPingDTO
 from app.core.proxies.exceptions import NoProxiesAddedException
 from app.core.proxies.models import TelegramProxy
 from app.core.proxies.repositories import ProxyRepository
 from app.core.proxies.tasks import save_proxies_to_database_task, update_proxies_in_database_task
 from app.core.proxies.utils import collect_source_ids
+from app.core.proxies_sources.constants import ProxySourceStatusEnum
+from app.core.proxies_sources.services import ProxySourceService
 from app.infra.gateways.github_gateway import GithubGateway
 from app.infra.taskiq.executor import TaskiqTasksExecutor
 
@@ -25,6 +22,7 @@ from app.infra.taskiq.executor import TaskiqTasksExecutor
 @dataclass
 class ProxyService:
     repository: ProxyRepository
+    proxy_source_service: ProxySourceService
     github_gateway: GithubGateway
     taskiq_tasks_executor: TaskiqTasksExecutor
 
@@ -40,7 +38,7 @@ class ProxyService:
         proxies = [
             ProxyDTO(
                 id=proxy.id,
-                source_name=proxy.source.name,
+                source_name=proxy.source.name if proxy.source else None,
                 created_at=proxy.created_at,
                 updated_at=proxy.updated_at,
                 url=proxy.tg_proxy_url,
@@ -53,12 +51,30 @@ class ProxyService:
         ]
         return Page(proxies, proxies_page.paging), counters  # type: ignore[arg-type]
 
+    async def get_proxy(self, proxy_id: int) -> ProxyDTO:
+        proxy = await self.repository.get_proxy_by_id(proxy_id=proxy_id, with_source=True)
+
+        return ProxyDTO(
+            id=proxy.id,
+            source_id=proxy.source_id,
+            source_name=proxy.source.name if proxy.source else None,
+            created_at=proxy.created_at,
+            updated_at=proxy.updated_at,
+            url=proxy.tg_proxy_url,
+            name=proxy.name,
+            latency=proxy.latency,
+            status=proxy.status,
+        )
+
     async def get_raw_proxies_urls(self, status: ProxyStatusEnum | None) -> str:
         urls = await self.repository.get_proxies_urls(status=status)
         return "\n".join(url for url in urls)
 
-    async def add_new_proxies(self) -> None:
-        proxy_sources = await self.repository.get_all_proxies_sources(status=ProxySourceStatusEnum.enabled)
+    async def add_new_proxies(self, sources_ids: set[int] | None = None) -> None:
+        # Пустой набор источников означает "собрать со всех включённых": фильтр просто не применяется.
+        proxy_sources = await self.proxy_source_service.get_proxies_sources(
+            status=ProxySourceStatusEnum.enabled, sources_ids=sources_ids
+        )
 
         coros = [self.github_gateway.get_urls_for_ping(proxy_source=ps) for ps in proxy_sources]
 
@@ -85,7 +101,7 @@ class ProxyService:
         )
         async with self.repository.get_transactional_session() as session:
             await self.repository.save_proxies(proxies_dto=proxies_dtos, session=session)
-            await self.repository.recalculate_proxies_sources_counters(
+            await self.proxy_source_service.recalculate_counters(
                 source_ids=collect_source_ids(proxies_dtos), session=session
             )
 
@@ -112,7 +128,7 @@ class ProxyService:
                 latency = proxy_base_dto.latency
 
             await self.repository.update_proxy(proxy, latency=latency, status=status, session=session)
-            await self.repository.recalculate_proxies_sources_counters(
+            await self.proxy_source_service.recalculate_counters(
                 source_ids={proxy.source_id} if proxy.source_id else None, session=session
             )
             return proxy
@@ -120,7 +136,7 @@ class ProxyService:
     async def delete_all_proxies(self) -> None:
         async with self.repository.get_transactional_session() as session:
             await self.repository.delete_all_proxies(session=session)
-            await self.repository.recalculate_proxies_sources_counters(session=session)
+            await self.proxy_source_service.recalculate_counters(session=session)
 
     async def update_all_proxies(self) -> None:
         existing_proxies = await self.repository.get_all_proxies()
@@ -137,7 +153,7 @@ class ProxyService:
 
         async with self.repository.get_transactional_session() as session:
             await self.repository.update_proxies(proxies_dtos, session=session)
-            await self.repository.recalculate_proxies_sources_counters(
+            await self.proxy_source_service.recalculate_counters(
                 source_ids=collect_source_ids(proxies_dtos), session=session
             )
 
@@ -153,4 +169,4 @@ class ProxyService:
             source_id = await self.repository.delete_proxy_by_id(proxy_id=proxy_id, session=session)
 
             if source_id is not None:
-                await self.repository.recalculate_proxies_sources_counters(source_ids={source_id}, session=session)
+                await self.proxy_source_service.recalculate_counters(source_ids={source_id}, session=session)

@@ -7,11 +7,16 @@ from fastapi.responses import PlainTextResponse
 from starlette import status
 
 from app.api.base_deps import get_offset_pagination
-from app.api.base_schemas import PaginationResponseWithCounters
+from app.api.base_schemas import OkResponse, PaginationResponseWithCounters
 from app.api.constants import PLAIN_TEXT_MEDIA_TYPE
-from app.api.exceptions import ResourceNotFoundByIDError
+from app.api.exceptions import RequestParamValidationError, ResourceNotFoundByIDError
 from app.api.proxies.exceptions import NoProxiesAddedAPIError
-from app.api.proxies.serializers import ProxiesCounters, TelegramProxySerializer, UpdateProxyRequestSerializer
+from app.api.proxies.serializers import (
+    ProxiesCounters,
+    SaveProxiesRequestSerializer,
+    TelegramProxySerializer,
+    UpdateProxyRequestSerializer,
+)
 from app.api.responses import build_responses
 from app.api.router import TPCAPIRoute
 from app.core.constants import ResourceType
@@ -100,11 +105,44 @@ async def get_raw_proxies(
     return PlainTextResponse(content=raw_proxies, status_code=status.HTTP_200_OK)
 
 
+@router.get(
+    "/proxies/{proxy_id}",
+    name="proxies:get_a_proxy",
+    status_code=status.HTTP_200_OK,
+    summary="Получение детальной информации по одной прокси",
+    responses=build_responses(
+        status_code=status.HTTP_200_OK,
+        response_model=OkResponse[TelegramProxySerializer],
+        exceptions=(ResourceNotFoundByIDError, RequestParamValidationError),
+    ),
+)
+@inject
+async def get_a_proxy(
+    proxy_id: Annotated[int, Path(..., description="ID прокси")],
+    proxy_service: Annotated[ProxyService, Depends(AsyncProvide[Container.services.proxy_service])],
+) -> OkResponse[TelegramProxySerializer]:
+
+    try:
+        proxy = await proxy_service.get_proxy(proxy_id=proxy_id)
+    except ProxyNotFoundException as exc:
+        raise ResourceNotFoundByIDError(resource_type=ResourceType.proxy, resource_id=proxy_id) from exc
+
+    return OkResponse.new(
+        status_code=status.HTTP_200_OK,
+        model=TelegramProxySerializer,
+        data=TelegramProxySerializer.model_validate(proxy),
+    )
+
+
 @router.post(
     "/proxies",
     name="proxies:save_proxies",
     status_code=status.HTTP_201_CREATED,
     summary="Сохранение проксей",
+    description=(
+        "Собирает прокси из включённых источников. Если `source_ids` не передан или пуст — "
+        "обходятся все включённые источники"
+    ),
     responses=build_responses(
         status_code=status.HTTP_201_CREATED,
         response_model=None,
@@ -114,10 +152,13 @@ async def get_raw_proxies(
 @inject
 async def save_proxies(
     proxy_service: Annotated[ProxyService, Depends(AsyncProvide[Container.services.proxy_service])],
+    body: Annotated[SaveProxiesRequestSerializer | None, Body(description="Тело запроса")] = None,
 ) -> None:
 
+    sources_ids = set(body.source_ids) if body and body.source_ids else None
+
     try:
-        await proxy_service.add_new_proxies()
+        await proxy_service.add_new_proxies(sources_ids=sources_ids)
     except NoProxiesAddedException as exc:
         raise NoProxiesAddedAPIError() from exc
 
@@ -142,7 +183,9 @@ async def delete_all_proxies(
     name="proxies:delete_a_proxy",
     status_code=status.HTTP_204_NO_CONTENT,
     summary="Удаление одной прокси из базы",
-    responses=build_responses(status_code=status.HTTP_204_NO_CONTENT, response_model=None),
+    responses=build_responses(
+        status_code=status.HTTP_204_NO_CONTENT, response_model=None, exceptions=(RequestParamValidationError,)
+    ),
 )
 @inject
 async def delete_a_proxy(
@@ -161,7 +204,7 @@ async def delete_a_proxy(
     responses=build_responses(
         status_code=status.HTTP_202_ACCEPTED,
         response_model=None,
-        exceptions=(ResourceNotFoundByIDError,),
+        exceptions=(ResourceNotFoundByIDError, RequestParamValidationError),
     ),
 )
 @inject

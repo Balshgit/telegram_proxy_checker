@@ -19,6 +19,7 @@ def setup_factory[T](factory: type[SQLAlchemyFactory[T]], session: AsyncSession)
     factory.__async_persistence__ = persistence
     factory.__set_primary_key__ = False
     factory.__set_relationships__ = False
+    factory.__set_foreign_keys__ = False
     factory.__faker__ = Faker(locale="ru_RU")
     return factory
 
