@@ -49,6 +49,8 @@ services:
       - ./envs/:/envs/:ro
     environment:
       DB_HOST: "tpc_db"
+      # Накатывать миграции alembic перед стартом uvicorn. 0 — пропустить
+      RUN_MIGRATIONS: "1"
     expose:
       - "8000"
     command:

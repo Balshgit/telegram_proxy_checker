@@ -3,12 +3,20 @@ YELLOW := $(shell tput -Txterm setaf 3)
 RESET  := $(shell tput -Txterm sgr0)
 
 .PHONY: help backend frontend database up-docker-app down-docker-app build-backend build-frontend push-backend push-frontend push-images \
-        test test-backend test-frontend
+        test test-backend test-frontend migrate migration
 .DEFAULT_GOAL := help
 
 ## Запустить backend.
 backend:
 	cd backend && make app && cd -
+
+## Накатить миграции БД.
+migrate:
+	cd backend && make migrate && cd -
+
+## Создать миграцию. Пример: make migration M="add proxy latency"
+migration:
+	cd backend && make migration M="$(M)" && cd -
 
 ## Запустить frontend.
 frontend:

@@ -9,6 +9,44 @@
 make help
 ```
 
+## Миграции БД
+
+Схема БД управляется `alembic`. Приложение таблицы не создаёт — миграции нужно накатить до старта.
+
+Конфигурация: `backend/alembic.ini`, скрипты — в `backend/app/infra/migrations/versions`.
+DSN берётся из настроек (`envs/.env`), дублировать его в `alembic.ini` не нужно.
+
+Из корня проекта:
+
+```bash
+make migrate                        # накатить всё до head
+make migration M="add proxy ttl"    # сгенерировать миграцию по diff моделей и БД
+```
+
+Из `backend/`:
+
+```bash
+make migrate                        # upgrade head (или REV=<revision>)
+make migration M="описание"         # revision --autogenerate
+make migration-empty M="описание"   # пустая ревизия для data-миграций
+make downgrade TO=-1                # откат
+make migration-current              # текущая ревизия в БД
+make migration-history              # история
+make migration-sql                  # SQL без применения
+```
+
+Модели для `--autogenerate` собираются автоматически: `load_all_models()` в `env.py` импортирует всё,
+что лежит в `app/core/<домен>/models.py` или `app/core/<домен>/models/`. Регистрировать модели вручную не нужно.
+
+Ревизия `0003` — data-миграция: заводит источники прокси по умолчанию (`kort0881`, `SoliSpirit`).
+
+В докере миграции накатываются автоматически перед стартом `server`
+(отключается через `RUN_MIGRATIONS=0`), либо отдельной командой:
+
+```bash
+docker compose run --rm backend migrate
+```
+
 ## Tests
 
 ### Все тесты сразу

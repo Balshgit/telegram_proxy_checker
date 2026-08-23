@@ -5,6 +5,7 @@ from sqlakeyset import Page
 from sqlalchemy import ColumnElement, Integer, cast, delete, func, select, update, values
 from sqlalchemy.exc import NoResultFound
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import contains_eager
 
 from app.core.pagination import OffsetPagination, core_get_page
 from app.core.proxies.constants import ProxyOrderByEnum, ProxySourceStatusEnum, ProxyStatusEnum
@@ -27,7 +28,7 @@ class ProxyRepository(BaseDBRepository):
             raise ProxyNotFoundException(proxy_id=proxy_id) from exc
 
     async def get_all_proxies(self, session: AsyncSession | None = None) -> list[TelegramProxy]:
-        query = select(TelegramProxy)
+        query = select(TelegramProxy).options(contains_eager(TelegramProxy.source))
 
         async with self.session_wrap(session) as wrapped_session:
             return await self.get_multiple_results(query=query, session=wrapped_session, as_scalars=True)

@@ -1,7 +1,7 @@
 from datetime import datetime
 
 from httpx import URL
-from sqlalchemy import DateTime, Integer, String, func
+from sqlalchemy import DateTime, Integer, String, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.orm.relationships import foreign, remote
 from sqlalchemy_utils import ChoiceType
@@ -37,7 +37,10 @@ class TelegramProxiesSource(DBBase):
 class TelegramProxy(DBBase):
 
     __tablename__ = "proxies"
-    __table_args__ = ({"schema": get_public_shema()},)
+    __table_args__ = (
+        UniqueConstraint("id", "source_id", name="One url from one source"),
+        {"schema": get_public_shema()},
+    )
 
     id: Mapped[int] = mapped_column("id", Integer, primary_key=True, autoincrement=True)
     name: Mapped[str] = mapped_column("name", String(200), comment="Proxy name")

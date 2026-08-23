@@ -77,7 +77,6 @@ class Application:
             await init_resources
 
         self._configure_orm_mappers()
-        await self.container.infra.database_engines().create_all_tables()
 
         broker = self.container.infra.taskiq_broker()
         if isinstance(broker, InMemoryBroker):

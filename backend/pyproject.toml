@@ -26,6 +26,7 @@ dependencies = [
     "tenacity>=9.1",
     "orjson>=3.11",
     "cachetools>=7.1.4",
+    "alembic>=1.19",
 ]
 
 [dependency-groups]
@@ -148,6 +149,7 @@ exclude = [
     ".venv",
     "tests/integration/*",
     "tests/unit/*",
+    "app/infra/migrations/*",
 ]
 
 [[tool.mypy.overrides]]

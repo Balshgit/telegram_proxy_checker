@@ -23,9 +23,7 @@ WORKDIR /app
 
 COPY --from=builder --chown=tpc:tpc /app/.venv /app/.venv
 
-COPY --chown=tpc:tpc ./app ./app
-COPY --chown=tpc:tpc ./settings ./settings
-COPY --chown=tpc:tpc ./docker/docker-entrypoint.sh ./docker/docker-entrypoint.sh
+COPY --chown=tpc:tpc . .
 
 ENV PATH="/app/.venv/bin:$PATH" \
     PYTHONDONTWRITEBYTECODE=1 \

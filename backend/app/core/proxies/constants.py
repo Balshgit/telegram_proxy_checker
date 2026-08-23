@@ -23,7 +23,7 @@ class ProxySourceStatusEnum(StrEnum):
 @unique
 class ProxyVendorNameEnum(StrEnum):
     external = "external"
-    github = "github"
+    github = "GitHub"
 
 
 @unique
