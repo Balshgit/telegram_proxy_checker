@@ -2,6 +2,7 @@ import type { ReactNode } from 'react'
 import { useCallback, useEffect, useState } from 'react'
 
 import { ApiRequestError } from '../../shared/api/client'
+import { normalizeSearch, setSearch, useSearch } from '../../shared/router'
 import { ConfirmDialog } from '../../shared/ui/Modal'
 import { Toasts, useToasts } from '../../shared/ui/Toasts'
 import { formatDate, truncate } from '../../shared/ui/format'
@@ -12,12 +13,14 @@ import { SourceFormModal } from './SourceFormModal'
 import {
   changedFields,
   formValuesFrom,
+  parseSourcesStatus,
+  serializeSourcesQuery,
   sourceLabel,
   STATUS_FILTERS,
   STATUS_LABELS,
   VENDOR_LABELS,
 } from './helpers'
-import type { SourceFormValues, StatusFilter } from './helpers'
+import type { SourceFormValues } from './helpers'
 
 import './SourcesPage.css'
 
@@ -35,7 +38,22 @@ type Dialog =
 
 function SourcesPage({ nav }: SourcesPageProps) {
   const [sources, setSources] = useState<ProxySource[]>([])
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
+
+  /*
+   * Фильтр живёт в адресе (`/proxies/sources?source_status=enabled`), как и
+   * параметры списка проксей: ссылку на нужную выборку можно скинуть, положить
+   * в закладки и поправить прямо в адресной строке.
+   */
+  const search = useSearch()
+  const statusFilter = parseSourcesStatus(search)
+
+  /* Причёсываем адрес под канон: выкидываем дефолт и невалидные значения. */
+  useEffect(() => {
+    const canonical = normalizeSearch(serializeSourcesQuery(statusFilter))
+    if (canonical !== search) {
+      setSearch(canonical, { replace: true })
+    }
+  }, [search, statusFilter])
 
   const [isLoading, setIsLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
@@ -200,7 +218,7 @@ function SourcesPage({ nav }: SourcesPageProps) {
                 key={filter.value}
                 type="button"
                 className={`segmented__item${statusFilter === filter.value ? ' is-active' : ''}`}
-                onClick={() => setStatusFilter(filter.value)}
+                onClick={() => setSearch(serializeSourcesQuery(filter.value))}
               >
                 {filter.label}
               </button>

@@ -5,12 +5,15 @@ import {
   addFromSourcesLabel,
   ariaSortFor,
   buildPageItems,
+  DEFAULT_PROXIES_QUERY,
   DEFAULT_SORT,
   filteredTotalFor,
   keepExistingSourceIds,
   latencyTone,
   nextSortState,
+  parseProxiesQuery,
   proxyLabel,
+  serializeProxiesQuery,
   sortGlyph,
   sourceLabel,
   toggleSourceId,
@@ -175,5 +178,82 @@ describe('выбор источников', () => {
   it('keepExistingSourceIds выкидывает пропавшие источники', () => {
     expect(keepExistingSourceIds([1, 2, 3], [2, 3, 4])).toEqual([2, 3])
     expect(keepExistingSourceIds([1, 2], [])).toEqual([])
+  })
+})
+
+describe('parseProxiesQuery', () => {
+  it('читает полный набор параметров из адреса', () => {
+    expect(parseProxiesQuery('?limit=25&offset=50&proxy_status=disabled&order_by=created_at_desc')).toEqual({
+      limit: 25,
+      offset: 50,
+      status: 'disabled',
+      sort: { field: 'created_at', direction: 'desc' },
+    })
+  })
+
+  it('пустой адрес даёт состояние по умолчанию', () => {
+    expect(parseProxiesQuery('')).toEqual(DEFAULT_PROXIES_QUERY)
+  })
+
+  it('принимает и строку, и готовые URLSearchParams', () => {
+    expect(parseProxiesQuery(new URLSearchParams('offset=20'))).toEqual(
+      parseProxiesQuery('?offset=20'),
+    )
+  })
+
+  it('размер страницы берёт только из списка вариантов', () => {
+    expect(parseProxiesQuery('?limit=25').limit).toBe(25)
+    expect(parseProxiesQuery('?limit=7').limit).toBe(DEFAULT_PROXIES_QUERY.limit)
+    expect(parseProxiesQuery('?limit=много').limit).toBe(DEFAULT_PROXIES_QUERY.limit)
+  })
+
+  it('отрицательный и нечисловой offset считает нулевым', () => {
+    expect(parseProxiesQuery('?offset=-10').offset).toBe(0)
+    expect(parseProxiesQuery('?offset=abc').offset).toBe(0)
+  })
+
+  it('округляет offset вниз до кратного размеру страницы', () => {
+    // Иначе подсветка номера страницы разъехалась бы с реальной выборкой.
+    expect(parseProxiesQuery('?offset=25').offset).toBe(20)
+    expect(parseProxiesQuery('?limit=25&offset=60').offset).toBe(50)
+  })
+
+  it('неизвестные статус и сортировку заменяет значениями по умолчанию', () => {
+    expect(parseProxiesQuery('?proxy_status=broken').status).toBe(DEFAULT_PROXIES_QUERY.status)
+    expect(parseProxiesQuery('?order_by=name').sort).toEqual(DEFAULT_SORT)
+  })
+
+  it('не спотыкается о чужие параметры в адресе', () => {
+    expect(parseProxiesQuery('?utm_source=telegram&offset=10')).toEqual({
+      ...DEFAULT_PROXIES_QUERY,
+      offset: 10,
+    })
+  })
+})
+
+describe('serializeProxiesQuery', () => {
+  it('на состоянии по умолчанию оставляет адрес чистым', () => {
+    expect(serializeProxiesQuery(DEFAULT_PROXIES_QUERY)).toBe('')
+  })
+
+  it('пишет только то, что отличается от умолчания', () => {
+    expect(serializeProxiesQuery({ ...DEFAULT_PROXIES_QUERY, offset: 20 })).toBe('offset=20')
+  })
+
+  it('собирает параметры в том же порядке, что и запрос к API', () => {
+    expect(
+      serializeProxiesQuery({
+        limit: 25,
+        offset: 50,
+        status: 'disabled',
+        sort: { field: 'created_at', direction: 'desc' },
+      }),
+    ).toBe('limit=25&offset=50&proxy_status=disabled&order_by=created_at_desc')
+  })
+
+  it('разбор и сборка обратны друг другу', () => {
+    const search = 'limit=50&offset=100&proxy_status=all&order_by=latency_desc'
+
+    expect(serializeProxiesQuery(parseProxiesQuery(search))).toBe(search)
   })
 })

@@ -48,6 +48,9 @@ const externalSource: ProxySource = {
 }
 
 beforeEach(() => {
+  // Фильтр живёт в адресе, поэтому каждый тест начинает с чистого `/proxies/sources`.
+  window.history.replaceState({}, '', '/proxies/sources')
+
   vi.mocked(fetchProxiesSources).mockResolvedValue([githubSource, externalSource])
   vi.mocked(createProxySource).mockResolvedValue(undefined)
   vi.mocked(updateProxySource).mockResolvedValue(undefined)
@@ -126,6 +129,35 @@ describe('список источников', () => {
         status: 'disabled',
       }),
     )
+  })
+
+  it('фильтр виден в адресной строке, дефолт адрес не засоряет', async () => {
+    const user = await renderLoadedPage()
+
+    expect(window.location.search).toBe('')
+
+    await user.click(screen.getByRole('button', { name: 'Включённые' }))
+
+    await waitFor(() => expect(window.location.search).toBe('?source_status=enabled'))
+  })
+
+  it('прямая ссылка с фильтром сразу уходит в запрос', async () => {
+    window.history.replaceState({}, '', '/proxies/sources?source_status=disabled')
+
+    await renderLoadedPage()
+
+    expect(vi.mocked(fetchProxiesSources).mock.calls.at(-1)?.[0]).toMatchObject({
+      status: 'disabled',
+    })
+    expect(screen.getByRole('button', { name: 'Выключенные' })).toHaveClass('is-active')
+  })
+
+  it('непонятный фильтр из адреса вычищается', async () => {
+    window.history.replaceState({}, '', '/proxies/sources?source_status=broken')
+
+    await renderLoadedPage()
+
+    await waitFor(() => expect(window.location.search).toBe(''))
   })
 
   it('показывает пустое состояние, когда источников нет', async () => {

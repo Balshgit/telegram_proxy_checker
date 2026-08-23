@@ -116,8 +116,12 @@ class ProxyRepository(BaseDBRepository):
             await wrapped_session.flush()
         return proxies
 
-    async def delete_all_proxies(self, session: AsyncSession | None = None) -> None:
+    async def delete_proxies(self, proxy_ids: set[int] | None = None, session: AsyncSession | None = None) -> None:
+        """Удаляет прокси с переданными id, а без фильтра — все прокси разом."""
         query = delete(TelegramProxy)
+
+        if proxy_ids is not None:
+            query = query.where(TelegramProxy.id.in_(proxy_ids))
 
         async with self.session_wrap(session) as wrapped_session:
             await wrapped_session.execute(query)

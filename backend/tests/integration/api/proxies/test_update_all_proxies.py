@@ -14,6 +14,7 @@ from tests.integration.api.proxies.helpers import (
     CHUNK_SIZE_FOR_TESTS,
     build_proxy_url,
     deferred_source_urls,
+    get_proxies_by_id,
     get_proxies_by_name,
     mocked_get_host_latency_by_server,
     mocked_save_postgres_chunk_size,
@@ -21,6 +22,7 @@ from tests.integration.api.proxies.helpers import (
     pinged_proxies,
     pinged_source_id_by_server,
 )
+from tests.integration.api.proxies_sources.helpers import get_proxies_sources_by_id
 from tests.support.factories.proxies import TelegramProxyFactory
 from tests.support.factories.proxies_sources import TelegramProxiesSourceFactory
 
@@ -270,6 +272,153 @@ async def test_update_all_proxies_does_not_touch_proxies_with_another_name(
     assert proxies_in_db[unmatched_proxy_id].status == ProxyStatusEnum.disabled
     assert proxies_in_db[unmatched_proxy_id].updated_at is None
     assert proxies_in_db[unmatched_proxy_id].source_id == unmatched_source_id
+
+
+async def test_update_all_proxies_deletes_duplicated_proxies_by_url(
+    rest_client: AsyncClient,
+    db_rollback_session: AsyncSession,
+    sqlalchemy_model_factory_maker: Callable[
+        [type[SQLAlchemyFactory], AsyncSession], Awaitable[type[SQLAlchemyFactory]]
+    ],
+) -> None:
+    """
+    Прокси с полностью совпадающим урлом считаются дублями и удаляются.
+
+    В базе остаётся самая ранняя прокси группы, и именно она (вместе с уникальными) уезжает на пинг и обновление.
+    """
+    proxy_factory = await sqlalchemy_model_factory_maker(factory_cls=TelegramProxyFactory, session=db_rollback_session)
+    proxies_source_factory = await sqlalchemy_model_factory_maker(
+        factory_cls=TelegramProxiesSourceFactory, session=db_rollback_session
+    )
+
+    source = await proxies_source_factory.create_async(status=ProxySourceStatusEnum.enabled)
+    source_id = source.id
+
+    duplicated_url = build_proxy_url(server=FIRST_PROXY_SERVER)
+
+    proxy_to_keep = await proxy_factory.create_async(
+        name=FIRST_PROXY_SERVER,
+        url=duplicated_url,
+        source_id=source_id,
+        status=ProxyStatusEnum.disabled,
+        latency=None,
+        updated_at=None,
+    )
+    first_duplicate = await proxy_factory.create_async(
+        name=FIRST_PROXY_SERVER,
+        url=duplicated_url,
+        source_id=source_id,
+        status=ProxyStatusEnum.disabled,
+        latency=None,
+        updated_at=None,
+    )
+    second_duplicate = await proxy_factory.create_async(
+        name=FIRST_PROXY_SERVER,
+        url=duplicated_url,
+        source_id=source_id,
+        status=ProxyStatusEnum.disabled,
+        latency=None,
+        updated_at=None,
+    )
+    unique_proxy = await proxy_factory.create_async(
+        name=SECOND_PROXY_SERVER,
+        url=build_proxy_url(server=SECOND_PROXY_SERVER),
+        source_id=source_id,
+        status=ProxyStatusEnum.disabled,
+        latency=None,
+        updated_at=None,
+    )
+    proxy_to_keep_id, unique_proxy_id = proxy_to_keep.id, unique_proxy.id
+    duplicated_proxies_ids = {first_duplicate.id, second_duplicate.id}
+
+    async with mocked_get_host_latency_by_server({FIRST_PROXY_SERVER: 55, SECOND_PROXY_SERVER: 606}) as mocked_latency:
+        response = await rest_client.post("/api/proxies/status")
+
+    assert response.status_code == status.HTTP_200_OK, response.text
+
+    # Дубли отсеиваются до пинга: каждый урл уезжает в гейтвей ровно один раз.
+    mocked_latency.assert_awaited_once()
+    assert sorted(proxy_to_ping.url.params["server"] for proxy_to_ping in pinged_proxies(mocked_latency)) == sorted(
+        [FIRST_PROXY_SERVER, SECOND_PROXY_SERVER]
+    )
+
+    proxies_in_db = await get_proxies_by_id(db_rollback_session)
+
+    assert set(proxies_in_db) == {proxy_to_keep_id, unique_proxy_id}
+    assert not duplicated_proxies_ids & set(proxies_in_db)
+
+    assert proxies_in_db[proxy_to_keep_id].url == duplicated_url
+    assert proxies_in_db[proxy_to_keep_id].latency == 55
+    assert proxies_in_db[proxy_to_keep_id].status == ProxyStatusEnum.enabled
+    assert proxies_in_db[proxy_to_keep_id].updated_at is not None
+    assert proxies_in_db[proxy_to_keep_id].source_id == source_id
+
+    assert proxies_in_db[unique_proxy_id].latency == 606
+    assert proxies_in_db[unique_proxy_id].status == ProxyStatusEnum.enabled
+    assert proxies_in_db[unique_proxy_id].updated_at is not None
+    assert proxies_in_db[unique_proxy_id].source_id == source_id
+
+
+async def test_update_all_proxies_recalculates_counters_after_deleting_duplicates(
+    rest_client: AsyncClient,
+    db_rollback_session: AsyncSession,
+    sqlalchemy_model_factory_maker: Callable[
+        [type[SQLAlchemyFactory], AsyncSession], Awaitable[type[SQLAlchemyFactory]]
+    ],
+) -> None:
+    """Счётчики источника пересчитываются по тому, что осталось в базе после удаления дублей."""
+    proxy_factory = await sqlalchemy_model_factory_maker(factory_cls=TelegramProxyFactory, session=db_rollback_session)
+    proxies_source_factory = await sqlalchemy_model_factory_maker(
+        factory_cls=TelegramProxiesSourceFactory, session=db_rollback_session
+    )
+
+    source = await proxies_source_factory.create_async(
+        status=ProxySourceStatusEnum.enabled, proxies_count=3, active_proxies_count=0
+    )
+    source_id = source.id
+
+    duplicated_url = build_proxy_url(server=FIRST_PROXY_SERVER)
+
+    proxy_to_keep = await proxy_factory.create_async(
+        name=FIRST_PROXY_SERVER,
+        url=duplicated_url,
+        source_id=source_id,
+        status=ProxyStatusEnum.disabled,
+        latency=None,
+        updated_at=None,
+    )
+    duplicated_proxy = await proxy_factory.create_async(
+        name=FIRST_PROXY_SERVER,
+        url=duplicated_url,
+        source_id=source_id,
+        status=ProxyStatusEnum.disabled,
+        latency=None,
+        updated_at=None,
+    )
+    unique_proxy = await proxy_factory.create_async(
+        name=SECOND_PROXY_SERVER,
+        url=build_proxy_url(server=SECOND_PROXY_SERVER),
+        source_id=source_id,
+        status=ProxyStatusEnum.disabled,
+        latency=None,
+        updated_at=None,
+    )
+    proxy_to_keep_id, duplicated_proxy_id, unique_proxy_id = proxy_to_keep.id, duplicated_proxy.id, unique_proxy.id
+
+    async with mocked_get_host_latency_by_server({FIRST_PROXY_SERVER: 55, SECOND_PROXY_SERVER: None}):
+        response = await rest_client.post("/api/proxies/status")
+
+    assert response.status_code == status.HTTP_200_OK, response.text
+
+    proxies_in_db = await get_proxies_by_id(db_rollback_session)
+
+    assert set(proxies_in_db) == {proxy_to_keep_id, unique_proxy_id}
+    assert duplicated_proxy_id not in proxies_in_db
+
+    source_in_db = (await get_proxies_sources_by_id(db_rollback_session))[source_id]
+
+    assert source_in_db.proxies_count == 2
+    assert source_in_db.active_proxies_count == 1
 
 
 async def test_update_all_proxies_on_empty_database(
