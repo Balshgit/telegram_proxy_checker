@@ -18,7 +18,13 @@ import {
 } from './api'
 import type { ProxyOrderBy, ProxyStatus, TelegramProxy } from './api'
 
+// Источники живут в своём модуле, но тулбар проксей должен уметь выбрать,
+// из каких именно источников собирать — берём их тем же клиентом, без дубля запроса.
+import { fetchProxiesSources } from '../proxies-sources/api'
+import type { ProxySource } from '../proxies-sources/api'
+
 import {
+  addFromSourcesLabel,
   ariaSortFor,
   buildPageItems,
   COPY_SCOPE_EMPTY_TEXT,
@@ -26,6 +32,7 @@ import {
   DEFAULT_SORT,
   filteredTotalFor,
   fromOrderBy,
+  keepExistingSourceIds,
   latencyTone,
   nextSortState,
   NOTHING_TO_ADD_TOAST,
@@ -34,10 +41,12 @@ import {
   sortGlyph,
   SORT_FIELD_LABELS,
   SORT_OPTIONS,
+  SOURCE_PICKER,
   sourceLabel,
   STATUS_FILTERS,
   STATUS_LABELS,
   STATUS_OPTIONS,
+  toggleSourceId,
   toOrderBy,
 } from './helpers'
 import type { CopyScope, SortField, SortState, StatusFilter } from './helpers'
@@ -71,6 +80,13 @@ function ProxiesPage({ nav }: ProxiesPageProps) {
   /** Прокси, для которой открыт диалог подтверждения удаления одной строки. */
   const [proxyToDelete, setProxyToDelete] = useState<TelegramProxy | null>(null)
   const [isMenuOpen, setIsMenuOpen] = useState(false)
+  /** Выпадашка «из каких источников собирать» у кнопки «Добавить прокси». */
+  const [isSourcePickerOpen, setIsSourcePickerOpen] = useState(false)
+  const [sources, setSources] = useState<ProxySource[]>([])
+  const [isSourcesLoading, setIsSourcesLoading] = useState(false)
+  const [sourcesError, setSourcesError] = useState<string | null>(null)
+  /** Отмеченные источники. Пусто — бекенд обойдёт все включённые. */
+  const [selectedSourceIds, setSelectedSourceIds] = useState<number[]>([])
   const [copiedId, setCopiedId] = useState<number | null>(null)
   const [copyingScope, setCopyingScope] = useState<CopyScope | null>(null)
   const [copiedScope, setCopiedScope] = useState<CopyScope | null>(null)
@@ -78,6 +94,7 @@ function ProxiesPage({ nav }: ProxiesPageProps) {
 
   const { toasts, pushToast } = useToasts()
   const menuRef = useRef<HTMLDivElement | null>(null)
+  const sourcePickerRef = useRef<HTMLDivElement | null>(null)
 
   const loadProxies = useCallback(
     async (signal?: AbortSignal) => {
@@ -144,6 +161,62 @@ function ProxiesPage({ nav }: ProxiesPageProps) {
     }
   }, [isMenuOpen])
 
+  /** Выпадашка выбора источников закрывается так же, как меню «⋯»: клик мимо и Escape. */
+  useEffect(() => {
+    if (!isSourcePickerOpen) {
+      return
+    }
+
+    const onPointerDown = (event: MouseEvent) => {
+      if (!sourcePickerRef.current?.contains(event.target as Node)) {
+        setIsSourcePickerOpen(false)
+      }
+    }
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setIsSourcePickerOpen(false)
+      }
+    }
+
+    document.addEventListener('mousedown', onPointerDown)
+    document.addEventListener('keydown', onKeyDown)
+    return () => {
+      document.removeEventListener('mousedown', onPointerDown)
+      document.removeEventListener('keydown', onKeyDown)
+    }
+  }, [isSourcePickerOpen])
+
+  /**
+   * Список источников для выпадашки.
+   *
+   * Берём только включённые: выключенные бекенд всё равно не опрашивает,
+   * и отметить их значило бы пообещать пользователю то, чего не произойдёт.
+   */
+  const loadSources = useCallback(async () => {
+    setIsSourcesLoading(true)
+    setSourcesError(null)
+    try {
+      const items = await fetchProxiesSources({ status: 'enabled' })
+      setSources(items)
+      // Источник могли выключить или удалить, пока выпадашка была закрыта.
+      setSelectedSourceIds((current) => keepExistingSourceIds(current, items.map((source) => source.id)))
+    } catch (error) {
+      setSources([])
+      setSourcesError(error instanceof ApiRequestError ? error.message : SOURCE_PICKER.loadError)
+    } finally {
+      setIsSourcesLoading(false)
+    }
+  }, [])
+
+  /** Открытие выпадашки — всегда со свежим списком источников. */
+  const handleToggleSourcePicker = useCallback(() => {
+    const willOpen = !isSourcePickerOpen
+    setIsSourcePickerOpen(willOpen)
+    if (willOpen) {
+      void loadSources()
+    }
+  }, [isSourcePickerOpen, loadSources])
+
   /** Клик по сортируемому заголовку: меняем порядок и возвращаемся на первую страницу. */
   const handleSort = useCallback((field: SortField) => {
     setSort((current) => nextSortState(current, field))
@@ -153,26 +226,33 @@ function ProxiesPage({ nav }: ProxiesPageProps) {
   /**
    * POST /api/proxies отвечает 201 без тела, поэтому актуальный список
    * (вместе со счётчиками и пагинацией) перезагружаем отдельным запросом.
+   *
+   * @param sourceIds какие источники опросить. Пустой список — все включённые:
+   *   ровно так пустой `source_ids` трактует и бекенд.
    */
-  const handleAddProxies = useCallback(async () => {
-    setPendingAction('create')
-    try {
-      const outcome = await createProxies()
+  const handleAddProxies = useCallback(
+    async (sourceIds: number[] = []) => {
+      setIsSourcePickerOpen(false)
+      setPendingAction('create')
+      try {
+        const outcome = await createProxies({ sourceIds })
 
-      if (outcome === 'nothing-to-add') {
-        pushToast('info', NOTHING_TO_ADD_TOAST.text, NOTHING_TO_ADD_TOAST.hint)
-        return
+        if (outcome === 'nothing-to-add') {
+          pushToast('info', NOTHING_TO_ADD_TOAST.text, NOTHING_TO_ADD_TOAST.hint)
+          return
+        }
+
+        pushToast('success', 'Прокси добавлены')
+        setOffset(0)
+        await loadProxies()
+      } catch (error) {
+        pushToast('error', error instanceof ApiRequestError ? error.message : 'Не удалось добавить прокси')
+      } finally {
+        setPendingAction(null)
       }
-
-      pushToast('success', 'Прокси добавлены')
-      setOffset(0)
-      await loadProxies()
-    } catch (error) {
-      pushToast('error', error instanceof ApiRequestError ? error.message : 'Не удалось добавить прокси')
-    } finally {
-      setPendingAction(null)
-    }
-  }, [loadProxies, pushToast])
+    },
+    [loadProxies, pushToast],
+  )
 
   /**
    * POST /api/proxies/status — бекенд перепроверяет все прокси,
@@ -451,24 +531,98 @@ function ProxiesPage({ nav }: ProxiesPageProps) {
 
         <div className="proxies-toolbar">
           <div className="proxies-toolbar__actions">
-            <button
-              type="button"
-              className="btn btn--blue"
-              onClick={handleAddProxies}
-              disabled={isBusy}
-              title="Добавить прокси"
-            >
-              {pendingAction === 'create' ? (
-                <span className="btn__spinner" />
-              ) : (
-                <span className="btn__icon" aria-hidden="true">
-                  ＋
+            {/*
+              Split-кнопка: обычный клик собирает прокси из всех включённых источников
+              (частый сценарий), а «▾» открывает выбор конкретных источников.
+            */}
+            <div className="split-btn" ref={sourcePickerRef}>
+              <button
+                type="button"
+                className="btn btn--blue split-btn__main"
+                onClick={() => void handleAddProxies()}
+                disabled={isBusy}
+                title="Добавить прокси"
+              >
+                {pendingAction === 'create' ? (
+                  <span className="btn__spinner" />
+                ) : (
+                  <span className="btn__icon" aria-hidden="true">
+                    ＋
+                  </span>
+                )}
+                <span className="btn__text">
+                  Добавить<span className="btn__text-extra"> прокси</span>
                 </span>
+              </button>
+
+              <button
+                type="button"
+                className={`btn btn--blue split-btn__toggle${isSourcePickerOpen ? ' is-open' : ''}`}
+                onClick={handleToggleSourcePicker}
+                disabled={isBusy}
+                title="Выбрать источники"
+                aria-label="Выбрать источники"
+                aria-haspopup="dialog"
+                aria-expanded={isSourcePickerOpen}
+              >
+                <span className="split-btn__caret" aria-hidden="true">
+                  ▾
+                </span>
+              </button>
+
+              {isSourcePickerOpen && (
+                <div className="source-picker" role="dialog" aria-label={SOURCE_PICKER.title}>
+                  <p className="source-picker__title">{SOURCE_PICKER.title}</p>
+
+                  {isSourcesLoading && <p className="source-picker__state muted">Загрузка источников…</p>}
+
+                  {!isSourcesLoading && sourcesError && (
+                    <p className="source-picker__state source-picker__state--error">{sourcesError}</p>
+                  )}
+
+                  {!isSourcesLoading && !sourcesError && sources.length === 0 && (
+                    <p className="source-picker__state muted">{SOURCE_PICKER.empty}</p>
+                  )}
+
+                  {!isSourcesLoading && !sourcesError && sources.length > 0 && (
+                    <>
+                      <ul className="source-picker__list">
+                        {sources.map((source) => (
+                          <li key={source.id}>
+                            <label className="source-picker__item">
+                              <input
+                                type="checkbox"
+                                checked={selectedSourceIds.includes(source.id)}
+                                onChange={() =>
+                                  setSelectedSourceIds((current) => toggleSourceId(current, source.id))
+                                }
+                              />
+                              <span className="source-picker__name" title={source.name}>
+                                {truncate(source.name, 40)}
+                              </span>
+                              <span className="source-picker__count muted">{source.proxies_count}</span>
+                            </label>
+                          </li>
+                        ))}
+                      </ul>
+
+                      {selectedSourceIds.length === 0 && (
+                        <p className="source-picker__hint muted">{SOURCE_PICKER.hint}</p>
+                      )}
+
+                      <button
+                        type="button"
+                        className="btn btn--blue source-picker__submit"
+                        onClick={() => void handleAddProxies(selectedSourceIds)}
+                        disabled={isBusy}
+                      >
+                        {addFromSourcesLabel(selectedSourceIds.length)}
+                      </button>
+                    </>
+                  )}
+                </div>
               )}
-              <span className="btn__text">
-                Добавить<span className="btn__text-extra"> прокси</span>
-              </span>
-            </button>
+            </div>
 
             <button
               type="button"

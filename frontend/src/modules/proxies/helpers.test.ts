@@ -2,15 +2,18 @@ import { describe, expect, it } from 'vitest'
 
 import type { TelegramProxy } from './api'
 import {
+  addFromSourcesLabel,
   ariaSortFor,
   buildPageItems,
   DEFAULT_SORT,
   filteredTotalFor,
+  keepExistingSourceIds,
   latencyTone,
   nextSortState,
   proxyLabel,
   sortGlyph,
   sourceLabel,
+  toggleSourceId,
   toOrderBy,
   UNKNOWN_SOURCE_LABEL,
 } from './helpers'
@@ -146,5 +149,31 @@ describe('filteredTotalFor', () => {
 
   it('для «Все» берёт общий счётчик', () => {
     expect(filteredTotalFor('all', 100, 30)).toBe(100)
+  })
+})
+
+describe('выбор источников', () => {
+  it('toggleSourceId добавляет id в конец и убирает повторный', () => {
+    expect(toggleSourceId([], 3)).toEqual([3])
+    expect(toggleSourceId([1, 2], 3)).toEqual([1, 2, 3])
+    expect(toggleSourceId([1, 2, 3], 2)).toEqual([1, 3])
+  })
+
+  it('toggleSourceId не мутирует исходный список', () => {
+    const selected = [1, 2]
+
+    toggleSourceId(selected, 3)
+
+    expect(selected).toEqual([1, 2])
+  })
+
+  it('addFromSourcesLabel различает пустой выбор и отмеченные источники', () => {
+    expect(addFromSourcesLabel(0)).toBe('Добавить из всех')
+    expect(addFromSourcesLabel(2)).toBe('Добавить из выбранных (2)')
+  })
+
+  it('keepExistingSourceIds выкидывает пропавшие источники', () => {
+    expect(keepExistingSourceIds([1, 2, 3], [2, 3, 4])).toEqual([2, 3])
+    expect(keepExistingSourceIds([1, 2], [])).toEqual([])
   })
 })

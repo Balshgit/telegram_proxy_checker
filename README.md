@@ -1,6 +1,8 @@
 # Proxy telegram checker
 
-![interface.png](interface.png)
+![proxies.png](./images/proxies.png)
+
+![proxy_sources.png](images/proxy_sources.png)
 
 
 ## Usefull commands:

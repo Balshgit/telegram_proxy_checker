@@ -131,6 +131,38 @@ export const NOTHING_TO_ADD_TOAST = {
 /** Подпись под именем прокси: из какого источника она приехала. */
 export const UNKNOWN_SOURCE_LABEL = 'Источник неизвестен'
 
+/** Тексты выпадашки выбора источников у кнопки «Добавить прокси». */
+export const SOURCE_PICKER = {
+  title: 'Собрать из источников',
+  /** Пустой выбор = «обойти все включённые источники», как и трактует пустой `source_ids` бекенд. */
+  hint: 'Ничего не выбрано — прокси соберутся из всех включённых источников',
+  empty: 'Включённых источников нет. Добавьте их на странице «Источники».',
+  loadError: 'Не удалось загрузить источники',
+} as const
+
+/** Добавляет/убирает id в выборе источников, сохраняя порядок отметки. */
+export function toggleSourceId(selected: number[], sourceId: number): number[] {
+  return selected.includes(sourceId)
+    ? selected.filter((id) => id !== sourceId)
+    : [...selected, sourceId]
+}
+
+/** Подпись кнопки в выпадашке: явно говорит, сколько источников будет опрошено. */
+export function addFromSourcesLabel(selectedCount: number): string {
+  return selectedCount === 0 ? 'Добавить из всех' : `Добавить из выбранных (${selectedCount})`
+}
+
+/**
+ * Отсекает из выбора источники, которых больше нет в списке.
+ *
+ * Список источников перечитывается при каждом открытии выпадашки, и за это время
+ * источник могли удалить или выключить — отправлять его id на бекенд бессмысленно.
+ */
+export function keepExistingSourceIds(selected: number[], availableIds: number[]): number[] {
+  const available = new Set(availableIds)
+  return selected.filter((id) => available.has(id))
+}
+
 export function sourceLabel(proxy: TelegramProxy): string {
   return proxy.source_name ? truncate(proxy.source_name, 48) : UNKNOWN_SOURCE_LABEL
 }
