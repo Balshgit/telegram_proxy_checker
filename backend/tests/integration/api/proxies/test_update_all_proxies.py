@@ -6,17 +6,21 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette import status
 
-from app.core.proxies.constants import ProxyStatusEnum
+from app.core.proxies.constants import ProxySourceStatusEnum, ProxyStatusEnum
 from app.core.proxies.models import TelegramProxy
 from app.core.proxies.tasks import update_proxies_in_database_task
 from tests.integration.api.proxies.helpers import (
     CHUNK_SIZE_FOR_TESTS,
     build_proxy_url,
+    deferred_source_urls,
+    get_proxies_by_name,
     mocked_get_host_latency_by_server,
     mocked_save_postgres_chunk_size,
     mocked_taskiq_run,
+    pinged_proxies,
+    pinged_source_id_by_server,
 )
-from tests.support.factories.proxies import TelegramProxyFactory
+from tests.support.factories.proxies import TelegramProxiesSourceFactory, TelegramProxyFactory
 
 FIRST_PROXY_SERVER = "1.2.3.4"
 SECOND_PROXY_SERVER = "5.6.7.8"
@@ -33,20 +37,21 @@ async def test_update_all_proxies(
 ) -> None:
     proxy_factory = await sqlalchemy_model_factory_maker(factory_cls=TelegramProxyFactory, session=db_rollback_session)
 
-    await proxy_factory.create_async(
+    first_proxy = await proxy_factory.create_async(
         name=FIRST_PROXY_SERVER,
         url=build_proxy_url(server=FIRST_PROXY_SERVER),
         status=ProxyStatusEnum.disabled,
         latency=None,
         updated_at=None,
     )
-    await proxy_factory.create_async(
+    second_proxy = await proxy_factory.create_async(
         name=SECOND_PROXY_SERVER,
         url=build_proxy_url(server=SECOND_PROXY_SERVER),
         status=ProxyStatusEnum.enabled,
         latency=10,
         updated_at=None,
     )
+    source_id_by_server = {FIRST_PROXY_SERVER: first_proxy.source_id, SECOND_PROXY_SERVER: second_proxy.source_id}
 
     latency_by_server: dict[str, int | None] = {FIRST_PROXY_SERVER: 55, SECOND_PROXY_SERVER: 606}
 
@@ -57,11 +62,11 @@ async def test_update_all_proxies(
     assert response.content == b"null"
 
     mocked_latency.assert_awaited_once()
-    assert sorted(url.params["server"] for url in mocked_latency.await_args.kwargs["urls"]) == sorted(latency_by_server)
+    assert sorted(proxy_to_ping.url.params["server"] for proxy_to_ping in pinged_proxies(mocked_latency)) == sorted(
+        latency_by_server
+    )
 
-    proxies_in_db = {
-        proxy.name: proxy for proxy in (await db_rollback_session.execute(select(TelegramProxy))).scalars().all()
-    }
+    proxies_in_db = await get_proxies_by_name(db_rollback_session)
 
     assert len(proxies_in_db) == 2
 
@@ -69,6 +74,116 @@ async def test_update_all_proxies(
         assert proxies_in_db[server].latency == expected_latency
         assert proxies_in_db[server].status == ProxyStatusEnum.enabled
         assert proxies_in_db[server].updated_at is not None
+        assert proxies_in_db[server].source_id == source_id_by_server[server]
+
+
+async def test_update_all_proxies_sends_source_id_to_gateway(
+    rest_client: AsyncClient,
+    db_rollback_session: AsyncSession,
+    sqlalchemy_model_factory_maker: Callable[
+        [type[SQLAlchemyFactory], AsyncSession], Awaitable[type[SQLAlchemyFactory]]
+    ],
+) -> None:
+    """
+    На пинг сервис отдаёт не голые урлы, а пары (source_id, url).
+
+    Источник берётся из существующей записи, поэтому по всей цепочке
+    сервис -> гейтвей -> репозиторий прокси остаётся привязанной к своему источнику.
+    """
+    proxy_factory = await sqlalchemy_model_factory_maker(factory_cls=TelegramProxyFactory, session=db_rollback_session)
+    proxies_source_factory = await sqlalchemy_model_factory_maker(
+        factory_cls=TelegramProxiesSourceFactory, session=db_rollback_session
+    )
+
+    first_source = await proxies_source_factory.create_async(status=ProxySourceStatusEnum.enabled)
+    second_source = await proxies_source_factory.create_async(status=ProxySourceStatusEnum.enabled)
+    first_source_id, second_source_id = first_source.id, second_source.id
+
+    await proxy_factory.create_async(
+        name=FIRST_PROXY_SERVER,
+        url=build_proxy_url(server=FIRST_PROXY_SERVER),
+        source_id=first_source_id,
+        status=ProxyStatusEnum.disabled,
+        latency=None,
+        updated_at=None,
+    )
+    await proxy_factory.create_async(
+        name=SECOND_PROXY_SERVER,
+        url=build_proxy_url(server=SECOND_PROXY_SERVER),
+        source_id=second_source_id,
+        status=ProxyStatusEnum.disabled,
+        latency=None,
+        updated_at=None,
+    )
+
+    async with mocked_get_host_latency_by_server(default_latency=42) as mocked_latency:
+        response = await rest_client.post("/api/proxies/status")
+
+    assert response.status_code == status.HTTP_200_OK, response.text
+
+    mocked_latency.assert_awaited_once()
+    assert pinged_source_id_by_server(mocked_latency) == {
+        FIRST_PROXY_SERVER: first_source_id,
+        SECOND_PROXY_SERVER: second_source_id,
+    }
+
+    proxies_in_db = await get_proxies_by_name(db_rollback_session)
+
+    assert proxies_in_db[FIRST_PROXY_SERVER].source_id == first_source_id
+    assert proxies_in_db[SECOND_PROXY_SERVER].source_id == second_source_id
+    assert proxies_in_db[FIRST_PROXY_SERVER].latency == 42
+    assert proxies_in_db[SECOND_PROXY_SERVER].latency == 42
+
+
+async def test_update_all_proxies_keeps_source_of_a_proxy_without_source(
+    rest_client: AsyncClient,
+    db_rollback_session: AsyncSession,
+    sqlalchemy_model_factory_maker: Callable[
+        [type[SQLAlchemyFactory], AsyncSession], Awaitable[type[SQLAlchemyFactory]]
+    ],
+) -> None:
+    """У прокси без источника `source_id` остаётся `None` и не подменяется чужим источником."""
+    proxy_factory = await sqlalchemy_model_factory_maker(factory_cls=TelegramProxyFactory, session=db_rollback_session)
+    proxies_source_factory = await sqlalchemy_model_factory_maker(
+        factory_cls=TelegramProxiesSourceFactory, session=db_rollback_session
+    )
+
+    source = await proxies_source_factory.create_async(status=ProxySourceStatusEnum.enabled)
+    source_id = source.id
+
+    await proxy_factory.create_async(
+        name=FIRST_PROXY_SERVER,
+        url=build_proxy_url(server=FIRST_PROXY_SERVER),
+        source_id=None,
+        status=ProxyStatusEnum.disabled,
+        latency=None,
+        updated_at=None,
+    )
+    await proxy_factory.create_async(
+        name=SECOND_PROXY_SERVER,
+        url=build_proxy_url(server=SECOND_PROXY_SERVER),
+        source_id=source_id,
+        status=ProxyStatusEnum.disabled,
+        latency=None,
+        updated_at=None,
+    )
+
+    async with mocked_get_host_latency_by_server(default_latency=42) as mocked_latency:
+        response = await rest_client.post("/api/proxies/status")
+
+    assert response.status_code == status.HTTP_200_OK, response.text
+
+    mocked_latency.assert_awaited_once()
+    assert pinged_source_id_by_server(mocked_latency) == {
+        FIRST_PROXY_SERVER: None,
+        SECOND_PROXY_SERVER: source_id,
+    }
+
+    proxies_in_db = await get_proxies_by_name(db_rollback_session)
+
+    assert proxies_in_db[FIRST_PROXY_SERVER].source_id is None
+    assert proxies_in_db[FIRST_PROXY_SERVER].updated_at is not None
+    assert proxies_in_db[SECOND_PROXY_SERVER].source_id == source_id
 
 
 async def test_update_all_proxies_when_proxy_is_unreachable(
@@ -87,7 +202,7 @@ async def test_update_all_proxies_when_proxy_is_unreachable(
         latency=42,
         updated_at=None,
     )
-    proxy_id = proxy.id
+    proxy_id, source_id = proxy.id, proxy.source_id
 
     async with mocked_get_host_latency_by_server({FIRST_PROXY_SERVER: None}) as mocked_latency:
         response = await rest_client.post("/api/proxies/status")
@@ -103,6 +218,8 @@ async def test_update_all_proxies_when_proxy_is_unreachable(
     assert updated_proxy.latency is None
     assert updated_proxy.status == ProxyStatusEnum.disabled
     assert updated_proxy.updated_at is not None
+    # Прокси отвалилась, но своего источника не теряет.
+    assert updated_proxy.source_id == source_id
 
 
 async def test_update_all_proxies_does_not_touch_proxies_with_another_name(
@@ -131,6 +248,7 @@ async def test_update_all_proxies_does_not_touch_proxies_with_another_name(
         updated_at=None,
     )
     matched_proxy_id, unmatched_proxy_id = matched_proxy.id, unmatched_proxy.id
+    matched_source_id, unmatched_source_id = matched_proxy.source_id, unmatched_proxy.source_id
 
     async with mocked_get_host_latency_by_server({FIRST_PROXY_SERVER: 55, SECOND_PROXY_SERVER: 606}):
         response = await rest_client.post("/api/proxies/status")
@@ -144,10 +262,12 @@ async def test_update_all_proxies_does_not_touch_proxies_with_another_name(
     assert proxies_in_db[matched_proxy_id].latency == 55
     assert proxies_in_db[matched_proxy_id].status == ProxyStatusEnum.enabled
     assert proxies_in_db[matched_proxy_id].updated_at is not None
+    assert proxies_in_db[matched_proxy_id].source_id == matched_source_id
 
     assert proxies_in_db[unmatched_proxy_id].latency is None
     assert proxies_in_db[unmatched_proxy_id].status == ProxyStatusEnum.disabled
     assert proxies_in_db[unmatched_proxy_id].updated_at is None
+    assert proxies_in_db[unmatched_proxy_id].source_id == unmatched_source_id
 
 
 async def test_update_all_proxies_on_empty_database(
@@ -161,7 +281,7 @@ async def test_update_all_proxies_on_empty_database(
     assert response.status_code == status.HTTP_200_OK, response.text
     assert response.content == b"null"
 
-    mocked_latency.assert_awaited_once_with(urls=[])
+    mocked_latency.assert_awaited_once_with(urls_with_source=[])
 
     proxies_in_db = (await db_rollback_session.execute(select(TelegramProxy))).scalars().all()
 
@@ -176,6 +296,12 @@ async def test_update_all_proxies_sends_proxies_over_chunk_size_to_taskiq(
     ],
 ) -> None:
     proxy_factory = await sqlalchemy_model_factory_maker(factory_cls=TelegramProxyFactory, session=db_rollback_session)
+    proxies_source_factory = await sqlalchemy_model_factory_maker(
+        factory_cls=TelegramProxiesSourceFactory, session=db_rollback_session
+    )
+
+    source = await proxies_source_factory.create_async(status=ProxySourceStatusEnum.enabled)
+    source_id = source.id
 
     total_proxies = CHUNK_SIZE_FOR_TESTS + PROXIES_OVER_CHUNK_SIZE
     all_servers = [f"10.0.0.{number}" for number in range(total_proxies)]
@@ -184,6 +310,7 @@ async def test_update_all_proxies_sends_proxies_over_chunk_size_to_taskiq(
         await proxy_factory.create_async(
             name=server,
             url=build_proxy_url(server=server),
+            source_id=source_id,
             status=ProxyStatusEnum.disabled,
             latency=None,
             updated_at=None,
@@ -199,22 +326,23 @@ async def test_update_all_proxies_sends_proxies_over_chunk_size_to_taskiq(
     assert response.status_code == status.HTTP_200_OK, response.text
 
     mocked_latency.assert_awaited_once()
-    pinged_servers = {url.params["server"] for url in mocked_latency.await_args.kwargs["urls"]}
+    pinged_servers = set(pinged_source_id_by_server(mocked_latency))
     assert len(pinged_servers) == CHUNK_SIZE_FOR_TESTS
+    assert set(pinged_source_id_by_server(mocked_latency).values()) == {source_id}
 
     mocked_taskiq.assert_awaited_once()
     assert mocked_taskiq.await_args.args[0] is update_proxies_in_database_task
 
-    deferred_urls = mocked_taskiq.await_args.kwargs["params"]["urls"]
-    deferred_servers = {URL(url).params["server"] for url in deferred_urls}
+    deferred = deferred_source_urls(mocked_taskiq)
+    deferred_servers = {URL(item["url"]).params["server"] for item in deferred}
 
-    assert len(deferred_urls) == PROXIES_OVER_CHUNK_SIZE
+    assert len(deferred) == PROXIES_OVER_CHUNK_SIZE
     assert pinged_servers.isdisjoint(deferred_servers)
     assert pinged_servers | deferred_servers == set(all_servers)
+    # "Хвост" уезжает в таску вместе с источником каждой прокси.
+    assert {item["source_id"] for item in deferred} == {source_id}
 
-    proxies_in_db = {
-        proxy.name: proxy for proxy in (await db_rollback_session.execute(select(TelegramProxy))).scalars().all()
-    }
+    proxies_in_db = await get_proxies_by_name(db_rollback_session)
 
     assert len(proxies_in_db) == total_proxies
 
@@ -222,9 +350,11 @@ async def test_update_all_proxies_sends_proxies_over_chunk_size_to_taskiq(
         assert proxies_in_db[server].latency == 55
         assert proxies_in_db[server].status == ProxyStatusEnum.enabled
         assert proxies_in_db[server].updated_at is not None
+        assert proxies_in_db[server].source_id == source_id
 
     # "Хвост" уехал в taskiq, поэтому в рамках этого запроса такие прокси остаются нетронутыми.
     for server in deferred_servers:
         assert proxies_in_db[server].latency is None
         assert proxies_in_db[server].status == ProxyStatusEnum.disabled
         assert proxies_in_db[server].updated_at is None
+        assert proxies_in_db[server].source_id == source_id

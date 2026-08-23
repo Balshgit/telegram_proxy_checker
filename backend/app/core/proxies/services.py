@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from itertools import chain
 
+from httpx import URL
 from sqlakeyset import Page
 
 from app.core.concurrency import run_async
@@ -40,17 +41,24 @@ class ProxyService:
 
     async def add_new_proxies(self) -> list[TelegramProxy]:
         proxy_sources = await self.repository.get_all_proxies_sources(status=ProxySourceStatusEnum.enabled)
+        proxy_sources_map = {ps.id: ps for ps in proxy_sources}
 
         coros = [self.github_gateway.get_urls_for_ping(proxy_source=ps) for ps in proxy_sources]
 
         new_proxies_url_lists = list(chain.from_iterable(await run_async(*coros))) if coros else []
 
         existing_proxies = await self.repository.get_all_proxies()
-        existing_proxies_urls = [
-            ProxySourceToPingDTO(source_id=proxy.source_id, url=proxy.url) for proxy in existing_proxies
-        ]
+        existing_proxies_urls = {URL(proxy.url) for proxy in existing_proxies}
 
-        urls_for_ping = list(set(new_proxies_url_lists).difference(set(existing_proxies_urls)))
+        # Дедупликация идёт по урлу, а не по паре (source_id, url): один и тот же урл,
+        # отданный несколькими источниками, должен попасть в базу ровно один раз.
+        urls_for_ping = list(
+            {
+                proxy_to_ping.url: proxy_to_ping
+                for proxy_to_ping in new_proxies_url_lists
+                if proxy_to_ping.url not in existing_proxies_urls
+            }.values()
+        )
 
         if not urls_for_ping:
             raise NoProxiesAddedException()
@@ -58,7 +66,9 @@ class ProxyService:
         proxies_dtos = await self.github_gateway.get_host_latency_for_urls(
             urls_with_source=urls_for_ping[:SAVE_POSTGRES_CHUNK_SIZE]
         )
-        proxies = await self.repository.save_proxies(proxies_dto=proxies_dtos)
+        async with self.repository.get_transactional_session() as session:
+            proxies = await self.repository.save_proxies(proxies_dto=proxies_dtos, session=None)
+
 
         if all_next_proxies := urls_for_ping[SAVE_POSTGRES_CHUNK_SIZE:]:
             await self.taskiq_tasks_executor.run(

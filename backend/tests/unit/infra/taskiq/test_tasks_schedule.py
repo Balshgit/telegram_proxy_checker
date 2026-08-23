@@ -117,7 +117,7 @@ class TestBuildSchedule:
         config = TaskConfig(
             func=cron_update_proxies_in_database_task,
             cron=TaskPeriodEnum.every_hour,
-            kwargs={"urls": []},
+            kwargs={"source_urls": []},
         )
 
-        assert build_schedule(config) == [{"kwargs": {"urls": []}, "cron": TaskPeriodEnum.every_hour}]
+        assert build_schedule(config) == [{"kwargs": {"source_urls": []}, "cron": TaskPeriodEnum.every_hour}]
