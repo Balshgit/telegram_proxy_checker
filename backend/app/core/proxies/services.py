@@ -11,7 +11,7 @@ from app.core.proxies.exceptions import NoProxiesAddedException
 from app.core.proxies.models import TelegramProxy
 from app.core.proxies.repositories import ProxyRepository
 from app.core.proxies.tasks import save_proxies_to_database_task, update_proxies_in_database_task
-from app.core.proxies.utils import collect_source_ids, to_web_proxy_url
+from app.core.proxies.utils import collect_source_ids, split_duplicated_proxies, to_web_proxy_url
 from app.core.proxies_sources.constants import ProxySourceStatusEnum
 from app.core.proxies_sources.services import ProxySourceService
 from app.infra.gateways.github_gateway import GithubGateway
@@ -140,27 +140,39 @@ class ProxyService:
 
     async def delete_all_proxies(self) -> None:
         async with self.repository.get_transactional_session() as session:
-            await self.repository.delete_all_proxies(session=session)
+            await self.repository.delete_proxies(session=session)
             await self.proxy_source_service.recalculate_counters(session=session)
 
     async def update_all_proxies(self) -> None:
-        existing_proxies = await self.repository.get_all_proxies()
-        existing_proxies_urls = [
-            ProxySourceToPingDTO(source_id=proxy.source_id, url=proxy.url) for proxy in existing_proxies
-        ]
-
-        proxies_dtos = await self.github_gateway.get_host_latency_for_urls(
-            urls_with_source=existing_proxies_urls[:SAVE_POSTGRES_CHUNK_SIZE]
-        )
-
-        if not proxies_dtos:
-            return
-
+        # Удаление дублей и обновление оставшихся проксей едут одной транзакцией:
+        # иначе упавшее обновление оставило бы базу без уже удалённых дублей.
         async with self.repository.get_transactional_session() as session:
-            await self.repository.update_proxies(proxies_dtos, session=session)
-            await self.proxy_source_service.recalculate_counters(
-                source_ids=collect_source_ids(proxies_dtos), session=session
+            existing_proxies = await self.repository.get_all_proxies(session=session)
+
+            unique_proxies, duplicated_proxies = split_duplicated_proxies(existing_proxies)
+
+            existing_proxies_urls = [
+                ProxySourceToPingDTO(source_id=proxy.source_id, url=proxy.url) for proxy in unique_proxies
+            ]
+            source_ids_to_recalculate = {proxy.source_id for proxy in duplicated_proxies if proxy.source_id is not None}
+
+            if duplicated_proxies:
+                await self.repository.delete_proxies(
+                    proxy_ids={proxy.id for proxy in duplicated_proxies}, session=session
+                )
+
+            proxies_dtos = await self.github_gateway.get_host_latency_for_urls(
+                urls_with_source=existing_proxies_urls[:SAVE_POSTGRES_CHUNK_SIZE]
             )
+
+            if proxies_dtos:
+                await self.repository.update_proxies(proxies_dtos, session=session)
+                source_ids_to_recalculate |= collect_source_ids(proxies_dtos)
+
+            if source_ids_to_recalculate:
+                await self.proxy_source_service.recalculate_counters(
+                    source_ids=source_ids_to_recalculate, session=session
+                )
 
         if all_next_existing_proxies := existing_proxies_urls[SAVE_POSTGRES_CHUNK_SIZE:]:
             await self.taskiq_tasks_executor.run(
