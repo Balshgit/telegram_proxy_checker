@@ -302,13 +302,13 @@ async def test_get_proxies_share_for_all_proxies(
     proxies_share = response.json()["payload"]["proxies_share"]
 
     assert proxies_share == (
-            f"\n----------1----------\n"
-            f"{proxy_2.tg_proxy_url}"
-            f"\n----------2----------\n"
-            f"{proxy_1.tg_proxy_url}"
-            f"\n----------3----------\n"
-            f"{proxy_3.tg_proxy_url}"
-            f"\n--------------------"
+        f"\n----------1----------\n"
+        f"{proxy_2.tg_proxy_url}"
+        f"\n----------2----------\n"
+        f"{proxy_1.tg_proxy_url}"
+        f"\n----------3----------\n"
+        f"{proxy_3.tg_proxy_url}"
+        f"\n--------------------"
     )
 
 
