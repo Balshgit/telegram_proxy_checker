@@ -3,6 +3,7 @@ from datetime import datetime
 from typing import Any
 
 from httpx import URL
+from sqlakeyset import Page
 
 from app.core.proxies.constants import ProxyStatusEnum
 from app.core.shared.types import Missing, MissingType
@@ -46,6 +47,13 @@ class ProxyServerDTO:
 class ProxyCountersDTO:
     total: int = 0
     active: int = 0
+
+
+@dataclass(slots=True, kw_only=True)
+class ProxyWithCountersDTO:
+    proxies_page: Page[list[ProxyDTO]]
+    counters: ProxyCountersDTO
+    proxies_share: str
 
 
 @dataclass(slots=True, kw_only=True, unsafe_hash=True)

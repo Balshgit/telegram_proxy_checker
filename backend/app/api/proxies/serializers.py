@@ -1,10 +1,12 @@
 from datetime import datetime
-from typing import Annotated
+from typing import Annotated, Any
 
+from fastapi import status
 from httpx import URL
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from pydantic_core import Url
 
+from app.api.base_schemas import BaseError, BasePaginationSerializer
 from app.core.proxies.constants import ProxyStatusEnum
 
 
@@ -32,6 +34,19 @@ class TelegramProxySerializer(BaseModel):
         return str(value)
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class TelegramProxyPaginatedSerializers(BaseModel):
+    pagination: Annotated[BasePaginationSerializer, Field(..., title="pagination")]
+    data: Annotated[list[TelegramProxySerializer], Field(..., description="Список проксей")]
+    counters: Annotated[ProxiesCounters, Field(..., description="Счётчики прокси")]
+    proxies_share: Annotated[str, Field(..., description="Список проксей для расшаривания")]
+
+
+class PaginatedTelegramProxyWithCountersSerializer(BaseModel):
+    status: Annotated[int, Field(..., title="Status code of request.", examples=[status.HTTP_200_OK])]
+    error: Annotated[dict[Any, Any] | BaseError | None, Field(None, title="Errors")]
+    payload: Annotated[TelegramProxyPaginatedSerializers, Field(title="Payload data.", default_factory=dict)]
 
 
 class UpdateProxyRequestSerializer(BaseModel):

@@ -29,9 +29,11 @@ async def test_get_all_proxies_empty_list(
 
     data = response.json()["payload"]["data"]
     counters = response.json()["payload"]["counters"]
+    proxies_share = response.json()["payload"]["proxies_share"]
 
     assert data == []
     assert counters == {"total": 0, "active": 0}
+    assert proxies_share == ""
 
 
 async def test_get_all_proxies(
@@ -272,6 +274,34 @@ async def test_get_all_proxies_with_best_latency_on_top(
             "latency": None,
         },
     ]
+
+
+async def test_get_proxies_share_for_all_proxies(
+    rest_client: AsyncClient,
+    db_rollback_session: AsyncSession,
+    sqlalchemy_model_factory_maker: Callable[
+        [type[SQLAlchemyFactory], AsyncSession], Awaitable[type[SQLAlchemyFactory]]
+    ],
+) -> None:
+    proxy_factory = await sqlalchemy_model_factory_maker(factory_cls=TelegramProxyFactory, session=db_rollback_session)
+    proxies_source_factory = await sqlalchemy_model_factory_maker(
+        factory_cls=TelegramProxiesSourceFactory, session=db_rollback_session
+    )
+
+    source = await proxies_source_factory.create_async()
+
+    proxy_1 = await proxy_factory.create_async(latency=543, updated_at=None, source_id=source.id)
+    proxy_2 = await proxy_factory.create_async(
+        latency=42, updated_at=datetime.now(tz=MOSCOW_TZ).replace(tzinfo=None), source_id=source.id
+    )
+    proxy_3 = await proxy_factory.create_async(latency=None, source_id=source.id)
+
+    response = await rest_client.get("/api/proxies")
+    assert response.status_code == status.HTTP_200_OK
+
+    proxies_share = response.json()["payload"]["proxies_share"]
+
+    assert proxies_share == "-----\n".join(str(p.tg_proxy_url) for p in (proxy_2, proxy_1, proxy_3))
 
 
 @pytest.mark.parametrize(
