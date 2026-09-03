@@ -66,6 +66,7 @@ describe('fetchProxies', () => {
           data: [proxyFixture],
           pagination: { next_page: '/api/proxies?offset=10', previous_page: null },
           counters: { total: 42, active: 7 },
+          proxies_share: 'https://t.me/proxy?server=1\nhttps://t.me/proxy?server=2',
         },
       }),
     )
@@ -77,6 +78,7 @@ describe('fetchProxies', () => {
     expect(result.items[0].source_name).toBe('MTProto list')
     expect(result.pagination.next_page).toBe('/api/proxies?offset=10')
     expect(result.counters).toEqual({ total: 42, active: 7 })
+    expect(result.share).toBe('https://t.me/proxy?server=1\nhttps://t.me/proxy?server=2')
   })
 
   it('добавляет proxy_status, только когда фильтр задан', async () => {
@@ -108,6 +110,7 @@ describe('fetchProxies', () => {
       items: [],
       pagination: { next_page: null, previous_page: null },
       counters: { total: 0, active: 0 },
+      share: '',
     })
   })
 

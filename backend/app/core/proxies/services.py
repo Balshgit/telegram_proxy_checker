@@ -6,7 +6,7 @@ from sqlakeyset import Page
 from app.core.concurrency import run_async
 from app.core.pagination import OffsetPagination
 from app.core.proxies.constants import SAVE_POSTGRES_CHUNK_SIZE, ProxyOrderByEnum, ProxyStatusEnum
-from app.core.proxies.dto import ProxyCountersDTO, ProxyDTO, ProxyFilterDTO, ProxySourceToPingDTO
+from app.core.proxies.dto import ProxyDTO, ProxyFilterDTO, ProxySourceToPingDTO, ProxyWithCountersDTO
 from app.core.proxies.exceptions import NoProxiesAddedException
 from app.core.proxies.models import TelegramProxy
 from app.core.proxies.repositories import ProxyRepository
@@ -30,7 +30,7 @@ class ProxyService:
         filters: ProxyFilterDTO,
         pagination: OffsetPagination,
         order_by: ProxyOrderByEnum = ProxyOrderByEnum.latency,
-    ) -> tuple[Page[list[ProxyDTO]], ProxyCountersDTO]:
+    ) -> ProxyWithCountersDTO:
         proxies_page, counters = await self.repository.get_paginated_proxies(
             filters=filters, pagination=pagination, order_by=order_by
         )
@@ -48,7 +48,19 @@ class ProxyService:
             )
             for proxy in proxies_page
         ]
-        return Page(proxies, proxies_page.paging), counters  # type: ignore[arg-type]
+
+        proxies_share = ""
+        for index, proxy in enumerate(proxies, start=pagination.offset + 1):
+            proxies_share += f"\n----------{index}----------\n"
+            proxies_share += str(proxy.url)
+            if index == len(proxies):
+                proxies_share += "\n--------------------"
+
+        return ProxyWithCountersDTO(
+            proxies_page=Page(proxies, proxies_page.paging),  # type: ignore[arg-type]
+            counters=counters,
+            proxies_share=proxies_share,
+        )
 
     async def get_proxy(self, proxy_id: int) -> ProxyDTO:
         proxy = await self.repository.get_proxy_by_id(proxy_id=proxy_id, with_source=True)

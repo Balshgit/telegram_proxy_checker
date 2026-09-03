@@ -7,13 +7,14 @@ from fastapi.responses import PlainTextResponse
 from starlette import status
 
 from app.api.base_deps import get_offset_pagination
-from app.api.base_schemas import OkResponse, PaginationResponseWithCounters
+from app.api.base_schemas import OkResponse
 from app.api.constants import PLAIN_TEXT_MEDIA_TYPE
 from app.api.exceptions import RequestParamValidationError, ResourceNotFoundByIDError
 from app.api.proxies.exceptions import NoProxiesAddedAPIError
 from app.api.proxies.serializers import (
-    ProxiesCounters,
+    PaginatedTelegramProxyWithCountersSerializer,
     SaveProxiesRequestSerializer,
+    TelegramProxyPaginatedSerializers,
     TelegramProxySerializer,
     UpdateProxyRequestSerializer,
 )
@@ -37,7 +38,7 @@ router = APIRouter(route_class=TPCAPIRoute)
     summary="Получение списка проксей",
     responses=build_responses(
         status_code=status.HTTP_200_OK,
-        response_model=PaginationResponseWithCounters[TelegramProxySerializer, ProxiesCounters],
+        response_model=PaginatedTelegramProxyWithCountersSerializer,
     ),
 )
 @inject
@@ -52,21 +53,20 @@ async def get_paginated_proxies(
         datetime | None, Query(..., description="Фильтровать до той даты, когда урлы прокси были создан")
     ] = None,
     proxy_status: Annotated[ProxyStatusEnum | None, Query(..., description="Фильтр по статусу")] = None,
-) -> PaginationResponseWithCounters[TelegramProxySerializer, ProxiesCounters]:
+) -> PaginatedTelegramProxyWithCountersSerializer:
 
     filters = ProxyFilterDTO(created_from=created_from, created_to=created_to, status=proxy_status)
 
-    proxies_page, counters = await proxy_service.get_all_proxies(
-        pagination=pagination, filters=filters, order_by=order_by
-    )
-
-    return PaginationResponseWithCounters.new(
-        status_code=status.HTTP_200_OK,
-        model=TelegramProxySerializer,
-        data=proxies_page,
-        pagination=proxies_page.paging,  # type: ignore[arg-type]
-        counters_model=ProxiesCounters,
-        counters=counters,
+    proxies_page_dto = await proxy_service.get_all_proxies(pagination=pagination, filters=filters, order_by=order_by)
+    return PaginatedTelegramProxyWithCountersSerializer(
+        status=status.HTTP_200_OK,
+        error=None,
+        payload=TelegramProxyPaginatedSerializers(
+            pagination=proxies_page_dto.proxies_page.paging,  # type: ignore[arg-type]
+            data=proxies_page_dto.proxies_page,
+            counters=proxies_page_dto.counters,  # type: ignore[arg-type]
+            proxies_share=proxies_page_dto.proxies_share,
+        ),
     )
 
 

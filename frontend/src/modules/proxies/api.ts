@@ -57,10 +57,20 @@ export interface ProxiesCounters {
   active: number
 }
 
+/**
+ * Полезная нагрузка GET /api/proxies: постраничный конверт плюс `proxies_share` —
+ * готовая строка со списком проксей текущей страницы для расшаривания.
+ */
+interface ProxiesPayload extends PaginatedPayload<TelegramProxy, ProxiesCounters> {
+  proxies_share: string
+}
+
 export interface ProxiesPageResult {
   items: TelegramProxy[]
   pagination: PaginationInfo
   counters: ProxiesCounters
+  /** Список проксей текущей страницы одной строкой — то, что уходит в буфер обмена. */
+  share: string
 }
 
 /**
@@ -100,15 +110,13 @@ export async function fetchProxies({
     query.set('order_by', orderBy)
   }
 
-  const payload = await apiRequestPayload<PaginatedPayload<TelegramProxy, ProxiesCounters>>(
-    `/proxies?${query.toString()}`,
-    { signal },
-  )
+  const payload = await apiRequestPayload<ProxiesPayload>(`/proxies?${query.toString()}`, { signal })
 
   return {
     items: payload?.data ?? [],
     pagination: payload?.pagination ?? { next_page: null, previous_page: null },
     counters: payload?.counters ?? { total: 0, active: 0 },
+    share: payload?.proxies_share ?? '',
   }
 }
 

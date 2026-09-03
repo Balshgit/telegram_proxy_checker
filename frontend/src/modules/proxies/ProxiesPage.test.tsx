@@ -17,7 +17,7 @@ import {
 import type { ProxiesPageResult, TelegramProxy } from './api'
 import { fetchProxiesSources } from '../proxies-sources/api'
 import type { ProxySource } from '../proxies-sources/api'
-import { UNKNOWN_SOURCE_LABEL } from './helpers'
+import { SHARE_PAGE, UNKNOWN_SOURCE_LABEL } from './helpers'
 
 /**
  * Сетевой слой мокаем целиком, но настоящий ApiRequestError оставляем:
@@ -92,11 +92,15 @@ const proxyTwo: TelegramProxy = {
   latency: null,
 }
 
+/** Готовая строка «поделиться» из ответа бекенда — ровно прокси текущей страницы. */
+const SHARE_TEXT = `${proxyOne.url}\n${proxyTwo.url}`
+
 function pageResult(over: Partial<ProxiesPageResult> = {}): ProxiesPageResult {
   return {
     items: [proxyOne, proxyTwo],
     pagination: { next_page: '/api/proxies?limit=10&offset=10', previous_page: null },
     counters: { total: 42, active: 30 },
+    share: SHARE_TEXT,
     ...over,
   }
 }
@@ -455,6 +459,23 @@ describe('копирование в буфер обмена', () => {
     await user.click(screen.getByLabelText('Скопировать ссылку прокси #1'))
 
     await waitFor(() => expect(writeText).toHaveBeenCalledWith(proxyOne.url))
+  })
+
+  it('«Поделиться страницей» копирует proxies_share и не ходит в сеть', async () => {
+    const user = await renderLoadedPage()
+
+    await user.click(screen.getByLabelText(SHARE_PAGE.title))
+
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith(SHARE_TEXT))
+    expect(fetchRawProxies).not.toHaveBeenCalled()
+    expect(await screen.findByText(SHARE_PAGE.success)).toBeInTheDocument()
+  })
+
+  it('без proxies_share кнопка «Поделиться страницей» выключена', async () => {
+    vi.mocked(fetchProxies).mockResolvedValue(pageResult({ share: '' }))
+    await renderLoadedPage()
+
+    expect(screen.getByLabelText(SHARE_PAGE.title)).toBeDisabled()
   })
 })
 

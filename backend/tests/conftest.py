@@ -9,7 +9,7 @@ from polyfactory.factories.base import BaseFactory
 from sqlalchemy import event
 from sqlalchemy.ext.asyncio.session import AsyncSession, async_sessionmaker
 from sqlalchemy.orm import Session, SessionTransaction
-from testcontainers.postgres import PostgresContainer
+from testcontainers.community.postgres import PostgresContainer
 
 from app.di.dependency_injector import Container
 from app.infra.sqlalchemy.typing import DatabaseDB
