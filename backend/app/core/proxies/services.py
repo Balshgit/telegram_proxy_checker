@@ -48,7 +48,14 @@ class ProxyService:
             )
             for proxy in proxies_page
         ]
-        proxies_share = "-----\n".join(str(proxy.url) for proxy in proxies)
+
+        proxies_share = ""
+        for index, proxy in enumerate(proxies, start=pagination.offset + 1):
+            proxies_share += f"\n----------{index}----------\n"
+            proxies_share += str(proxy.url)
+            if index == len(proxies):
+                proxies_share += "\n--------------------"
+
         return ProxyWithCountersDTO(
             proxies_page=Page(proxies, proxies_page.paging),  # type: ignore[arg-type]
             counters=counters,

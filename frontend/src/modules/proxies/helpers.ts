@@ -105,6 +105,22 @@ export const COPY_SCOPE_EMPTY_TEXT: Record<CopyScope, string> = {
   active: 'Активных прокси нет',
 }
 
+/**
+ * Тексты кнопки «Поделиться страницей».
+ *
+ * Копируется не вся база, а `proxies_share` из ответа GET /api/proxies —
+ * готовая строка ровно по текущей странице (с её фильтром, сортировкой и размером).
+ */
+export const SHARE_PAGE = {
+  label: 'Поделиться',
+  labelExtra: ' страницей',
+  title: 'Скопировать прокси с этой страницы в буфер обмена',
+  empty: 'Делиться нечем',
+  emptyHint: 'На этой странице нет прокси для расшаривания.',
+  success: 'Прокси со страницы скопированы в буфер обмена',
+  error: 'Не удалось скопировать прокси со страницы',
+} as const
+
 export const STATUS_LABELS: Record<ProxyStatus, string> = {
   enabled: 'Активен',
   disabled: 'Неактивен',

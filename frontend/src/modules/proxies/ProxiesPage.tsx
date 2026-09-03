@@ -40,6 +40,7 @@ import {
   parseProxiesQuery,
   proxyLabel,
   serializeProxiesQuery,
+  SHARE_PAGE,
   sortGlyph,
   SORT_FIELD_LABELS,
   SORT_OPTIONS,
@@ -69,6 +70,12 @@ function ProxiesPage({ nav }: ProxiesPageProps) {
   const [total, setTotal] = useState(0)
   const [activeCount, setActiveCount] = useState(0)
   const [hasNextPage, setHasNextPage] = useState(false)
+  /**
+   * `proxies_share` из ответа GET /api/proxies — готовая строка со списком проксей
+   * текущей страницы. Собирать её на фронте не нужно: бекенд уже учёл фильтр,
+   * сортировку и размер страницы.
+   */
+  const [shareText, setShareText] = useState('')
 
   /*
    * Страница, размер страницы, фильтр и сортировка хранятся не в useState,
@@ -120,6 +127,8 @@ function ProxiesPage({ nav }: ProxiesPageProps) {
   const [copiedId, setCopiedId] = useState<number | null>(null)
   const [copyingScope, setCopyingScope] = useState<CopyScope | null>(null)
   const [copiedScope, setCopiedScope] = useState<CopyScope | null>(null)
+  /** Короткая галочка на кнопке «Поделиться страницей» сразу после копирования. */
+  const [isPageShared, setIsPageShared] = useState(false)
   const [rowPending, setRowPending] = useState<Record<number, RowAction>>({})
 
   const { toasts, pushToast } = useToasts()
@@ -145,11 +154,13 @@ function ProxiesPage({ nav }: ProxiesPageProps) {
         setTotal(page.counters.total)
         setActiveCount(page.counters.active)
         setHasNextPage(Boolean(page.pagination.next_page))
+        setShareText(page.share)
       } catch (error) {
         if (signal?.aborted) {
           return
         }
         setProxies([])
+        setShareText('')
         setLoadError(error instanceof ApiRequestError ? error.message : 'Неизвестная ошибка при загрузке проксей')
       } finally {
         if (!signal?.aborted) {
@@ -396,6 +407,26 @@ function ProxiesPage({ nav }: ProxiesPageProps) {
     },
     [copyingScope, pushToast],
   )
+
+  /**
+   * «Поделиться страницей»: кладёт в буфер обмена `proxies_share` — список проксей
+   * ровно текущей страницы. Запрос не нужен: строка приехала вместе со списком.
+   */
+  const handleSharePage = useCallback(async () => {
+    if (!shareText) {
+      pushToast('info', SHARE_PAGE.empty, SHARE_PAGE.emptyHint)
+      return
+    }
+
+    try {
+      await copyToClipboard(shareText)
+      setIsPageShared(true)
+      window.setTimeout(() => setIsPageShared(false), 1500)
+      pushToast('success', SHARE_PAGE.success)
+    } catch {
+      pushToast('error', SHARE_PAGE.error)
+    }
+  }, [pushToast, shareText])
 
   /**
    * PATCH /api/proxies/{id} отвечает 202 без тела, поэтому обновлённую строку
@@ -727,6 +758,28 @@ function ProxiesPage({ nav }: ProxiesPageProps) {
                 ))}
               </select>
             </label>
+
+            {/*
+              Рядом со счётчиком «На странице» — копирование списка проксей этой страницы
+              одним куском. Берём готовый `proxies_share` из последнего ответа списка,
+              поэтому кнопка неактивна, пока страница пуста или ещё грузится.
+            */}
+            <button
+              type="button"
+              className={`btn btn--violet btn--share${isPageShared ? ' is-shared' : ''}`}
+              onClick={() => void handleSharePage()}
+              disabled={isBusy || isLoading || !shareText}
+              title={SHARE_PAGE.title}
+              aria-label={SHARE_PAGE.title}
+            >
+              <span className="btn__icon" aria-hidden="true">
+                {isPageShared ? '✓' : '⇪'}
+              </span>
+              <span className="btn__text">
+                {SHARE_PAGE.label}
+                <span className="btn__text-extra">{SHARE_PAGE.labelExtra}</span>
+              </span>
+            </button>
 
             {/*
               Опасное «удалить всё» намеренно спрятано в неприметное меню «⋯»,
