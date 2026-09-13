@@ -111,7 +111,7 @@ taskiq_tasks = TaskiqTasks.build(
     ),
     TaskConfig(
         func=cron_add_proxies_to_database_task,
-        cron=TaskPeriodEnum.every_minute,
+        cron=TaskPeriodEnum.every_six_hours,
         labels={"timeout": 10, "retry_on_error": True, "max_retries": 2},
     ),
 )

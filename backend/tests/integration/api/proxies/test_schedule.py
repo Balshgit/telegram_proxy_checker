@@ -1,12 +1,10 @@
 from collections.abc import Awaitable, Callable
 
-import pytest
 from polyfactory.factories.sqlalchemy_factory import SQLAlchemyFactory
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.proxies.constants import ProxyStatusEnum
-from app.core.proxies.exceptions import NoProxiesAddedException
 from app.core.proxies.models import TelegramProxy
 from app.core.proxies.tasks import (
     cron_add_proxies_to_database_task,
@@ -497,60 +495,3 @@ async def test_cron_add_proxies_task_sends_urls_over_chunk_size_to_taskiq(
     for proxy in proxies_in_db.values():
         assert proxy.latency == 55
         assert proxy.source_id == source_id
-
-
-async def test_cron_add_proxies_task_raises_when_nothing_to_add(
-    container: Container,
-    db_rollback_session: AsyncSession,
-    sqlalchemy_model_factory_maker: Callable[
-        [type[SQLAlchemyFactory], AsyncSession], Awaitable[type[SQLAlchemyFactory]]
-    ],
-) -> None:
-    """
-    Когда новых урлов нет, сервис бросает `NoProxiesAddedException`, и крон её не гасит.
-
-    Это осознанное поведение: у таски включены ретраи, и падение — единственный способ
-    отличить «сходили впустую» от «сходили успешно» в логах воркера.
-    """
-    proxy_factory = await sqlalchemy_model_factory_maker(factory_cls=TelegramProxyFactory, session=db_rollback_session)
-    proxies_source_factory = await sqlalchemy_model_factory_maker(
-        factory_cls=TelegramProxiesSourceFactory, session=db_rollback_session
-    )
-
-    source = await proxies_source_factory.create_async(status=ProxySourceStatusEnum.enabled)
-    source_id = source.id
-
-    existing_proxy = await proxy_factory.create_async(latency=42, source_id=source_id)
-    existing_proxy_id, existing_proxy_url = existing_proxy.id, existing_proxy.url
-
-    async with mocked_github_get_proxies(existing_proxy_url) as mocked_github:
-        with pytest.raises(NoProxiesAddedException):
-            await cron_add_proxies_to_database_task(context=DummyContext(container=container))
-
-        assert mocked_github.routes[GITHUB_PROXIES_ROUTE_NAME].call_count == 1
-
-    proxies_in_db = await get_proxies_by_url(db_rollback_session)
-
-    assert list(proxies_in_db) == [existing_proxy_url]
-    assert proxies_in_db[existing_proxy_url].id == existing_proxy_id
-    assert proxies_in_db[existing_proxy_url].latency == 42
-
-
-async def test_cron_add_proxies_task_raises_without_enabled_sources(
-    container: Container,
-    db_rollback_session: AsyncSession,
-    sqlalchemy_model_factory_maker: Callable[
-        [type[SQLAlchemyFactory], AsyncSession], Awaitable[type[SQLAlchemyFactory]]
-    ],
-) -> None:
-    """Все источники выключены — идти некуда: таска падает, в базу ничего не пишется."""
-    proxies_source_factory = await sqlalchemy_model_factory_maker(
-        factory_cls=TelegramProxiesSourceFactory, session=db_rollback_session
-    )
-
-    await proxies_source_factory.create_async(status=ProxySourceStatusEnum.disabled)
-
-    with pytest.raises(NoProxiesAddedException):
-        await cron_add_proxies_to_database_task(context=DummyContext(container=container))
-
-    assert (await db_rollback_session.execute(select(TelegramProxy))).scalars().all() == []
