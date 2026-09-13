@@ -470,10 +470,16 @@
   font-size: 14px;
 }
 
+/*
+ * Паддинги ячеек намеренно тесные. Оболочка страницы упёрта в `max-width: 1180px`,
+ * то есть таблице всегда достаётся ~1178px независимо от размера монитора,
+ * а колонок восемь. С прежними 18px таблица требовала 1308px, и «Действия»
+ * целиком уезжали под горизонтальный скролл, которого на трекпаде не видно.
+ */
 .proxies-table thead th {
   position: sticky;
   top: 0;
-  padding: 14px 18px;
+  padding: 14px 12px;
   text-align: left;
   font-size: 11px;
   font-weight: 600;
@@ -499,7 +505,7 @@
   align-items: center;
   gap: 6px;
   width: 100%;
-  padding: 14px 18px;
+  padding: 14px 12px;
   border: none;
   background: transparent;
   color: inherit;
@@ -531,7 +537,7 @@
 }
 
 .proxies-table tbody td {
-  padding: 14px 18px;
+  padding: 14px 12px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.05);
   vertical-align: middle;
 }
@@ -549,25 +555,31 @@
 }
 
 .col-id {
-  width: 76px;
+  width: 68px;
 }
 
 .col-status {
-  width: 156px;
+  width: 142px;
 }
 
 .col-ping {
-  width: 110px;
+  width: 92px;
 }
 
+/* Три колонки дат подряд (Создан, Обновлён, Активна) — самая дорогая часть строки,
+   поэтому шрифт здесь на размер мельче: «01.05.2024 13:00» умещается и так. */
 .col-date {
-  width: 160px;
+  width: 132px;
+  font-size: 12px;
   white-space: nowrap;
 }
 
 .col-actions {
-  width: 274px;
+  width: 252px;
   text-align: right;
+  /* Кнопки и так прижаты вправо — левый паддинг был бы мёртвым полем,
+     а эти 12px нужнее колонке с именем прокси. */
+  padding-left: 0;
 }
 
 .row-actions {
@@ -581,7 +593,7 @@
   display: flex;
   flex-direction: column;
   gap: 3px;
-  min-width: 220px;
+  min-width: 190px;
 }
 
 /* В ячейке — имя прокси и источник; url и secret наружу не показываем */
@@ -756,32 +768,19 @@
     display: none;
   }
 
-  /* Таблица уплотняется, чтобы горизонтальный скролл был минимальным */
+  /*
+   * Ширины колонок уплотнены уже в базовых правилах — их хватает и здесь.
+   * Остаётся подобрать вертикальный ритм: строки ниже, чтобы на планшете
+   * в экран попадало больше записей.
+   */
   .proxies-table thead th,
   .proxies-table tbody td {
-    padding: 12px 12px;
+    padding: 12px;
   }
 
-  /* У сортируемых заголовков паддинг живёт в кнопке — уплотняем её */
+  /* У сортируемых заголовков паддинг живёт в кнопке — уплотняем её заодно */
   .sort-btn {
-    padding: 12px 12px;
-  }
-
-  .col-date {
-    width: 132px;
-    font-size: 12px;
-  }
-
-  .col-status {
-    width: 142px;
-  }
-
-  .col-actions {
-    width: 252px;
-  }
-
-  .proxy-cell {
-    min-width: 190px;
+    padding: 12px;
   }
 }
 
