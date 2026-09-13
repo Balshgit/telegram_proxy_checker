@@ -8,6 +8,7 @@ from taskiq.exceptions import UnknownTaskError
 from taskiq.schedule_sources import LabelScheduleSource
 
 from app.core.proxies.tasks import (
+    cron_add_proxies_to_database_task,
     cron_delete_stale_proxies_task,
     cron_update_proxies_in_database_task,
     save_proxies_to_database_task,
@@ -21,7 +22,12 @@ from app.infra.taskiq.helpers import (
     get_task_name,
     register_tasks,
 )
-from tests.unit.infra.helpers import CLEANUP_TASK_CRON, CRON_TASK_INTERVAL
+from tests.unit.infra.helpers import (
+    ADD_PROXIES_TASK_CRON,
+    ADD_PROXIES_TASK_LABELS,
+    CLEANUP_TASK_CRON,
+    CRON_TASK_INTERVAL,
+)
 
 UNSCHEDULED_TASKS: list[Callable[..., Any]] = [save_proxies_to_database_task, update_proxies_in_database_task]
 
@@ -55,6 +61,39 @@ def test_cleanup_task_is_scheduled_daily_at_three_am(broker: InMemoryBroker) -> 
 
 def test_every_day_period_is_three_am() -> None:
     assert TaskPeriodEnum.every_day == CLEANUP_TASK_CRON
+
+
+def test_add_proxies_task_is_registered_in_broker(broker: InMemoryBroker) -> None:
+    assert broker.find_task(get_task_name(cron_add_proxies_to_database_task)) is not None
+
+
+def test_add_proxies_task_is_scheduled_every_six_hours(broker: InMemoryBroker) -> None:
+    task = broker.find_task(get_task_name(cron_add_proxies_to_database_task))
+
+    assert task.labels["schedule"] == [{"kwargs": {}, "cron": ADD_PROXIES_TASK_CRON}]
+
+
+def test_every_six_hours_period_is_start_of_every_sixth_hour() -> None:
+    assert TaskPeriodEnum.every_six_hours == ADD_PROXIES_TASK_CRON
+
+
+def test_add_proxies_task_is_retried_on_error(broker: InMemoryBroker) -> None:
+    """
+    Единственная задача с ретраями: пропущенный добор проксей — это минус 6 часов свежих записей,
+    поэтому разовая ошибка похода в github должна повторяться, а не молча гаситься до следующего крона.
+    """
+    task = broker.find_task(get_task_name(cron_add_proxies_to_database_task))
+
+    assert {label: task.labels[label] for label in ADD_PROXIES_TASK_LABELS} == ADD_PROXIES_TASK_LABELS
+
+
+@pytest.mark.parametrize("task_func", [cron_update_proxies_in_database_task, cron_delete_stale_proxies_task])
+def test_other_cron_tasks_are_not_retried(broker: InMemoryBroker, task_func: Callable[..., Any]) -> None:
+    """Контраст к тесту выше: остальные кроны отрабатывают ровно один раз и ждут следующего запуска."""
+    task = broker.find_task(get_task_name(task_func))
+
+    assert task.labels["retry_on_error"] is False
+    assert task.labels["max_retries"] == 0
 
 
 @pytest.mark.parametrize("task_func", UNSCHEDULED_TASKS)
@@ -116,6 +155,21 @@ async def test_label_schedule_source_picks_up_cleanup_task(broker: InMemoryBroke
     assert len(cleanup_schedules) == 1
     assert cleanup_schedules[0].cron == CLEANUP_TASK_CRON
     assert cleanup_schedules[0].interval is None
+
+
+async def test_label_schedule_source_picks_up_add_proxies_task(broker: InMemoryBroker) -> None:
+    source = LabelScheduleSource(broker=broker)
+
+    await source.startup()
+    schedules = await source.get_schedules()
+
+    add_proxies_schedules = [
+        schedule for schedule in schedules if schedule.task_name == get_task_name(cron_add_proxies_to_database_task)
+    ]
+
+    assert len(add_proxies_schedules) == 1
+    assert add_proxies_schedules[0].cron == ADD_PROXIES_TASK_CRON
+    assert add_proxies_schedules[0].interval is None
 
 
 async def test_label_schedule_source_ignores_tasks_without_schedule(broker: InMemoryBroker) -> None:
