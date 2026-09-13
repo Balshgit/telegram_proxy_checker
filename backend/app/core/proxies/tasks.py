@@ -68,7 +68,7 @@ async def cron_delete_stale_proxies_task(context: typing.Annotated[Context, Task
 
 
 @log_taskiq_decorator
-async def cron_add_proxies_to_database_task(context: typing.Annotated[Context, TaskiqDepends()]) -> None:
+async def cron_add_new_proxies_to_database_task(context: typing.Annotated[Context, TaskiqDepends()]) -> None:
 
     proxy_service: ProxyService = context.state.container.services.proxy_service()
 

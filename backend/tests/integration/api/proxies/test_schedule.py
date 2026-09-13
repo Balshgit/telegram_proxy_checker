@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.proxies.constants import ProxyStatusEnum
 from app.core.proxies.models import TelegramProxy
 from app.core.proxies.tasks import (
-    cron_add_proxies_to_database_task,
+    cron_add_new_proxies_to_database_task,
     cron_delete_stale_proxies_task,
     cron_update_proxies_in_database_task,
     save_proxies_to_database_task,
@@ -243,7 +243,7 @@ async def test_cron_add_proxies_task_saves_new_proxies(
         mocked_github_get_proxies(f"{first_url}\n{second_url}") as mocked_github,
         mocked_get_host_latency_for_urls(latency_by_url) as mocked_latency,
     ):
-        await cron_add_proxies_to_database_task(context=DummyContext(container=container))
+        await cron_add_new_proxies_to_database_task(context=DummyContext(container=container))
 
         assert mocked_github.routes[GITHUB_PROXIES_ROUTE_NAME].call_count == 1
 
@@ -293,7 +293,7 @@ async def test_cron_add_proxies_task_pings_proxies_with_their_source(
         mocked_github_get_proxies_by_source(raw_proxies_by_source) as mocked_github,
         mocked_get_host_latency_for_urls(default_latency=42) as mocked_latency,
     ):
-        await cron_add_proxies_to_database_task(context=DummyContext(container=container))
+        await cron_add_new_proxies_to_database_task(context=DummyContext(container=container))
 
         assert mocked_github.calls.call_count == len(raw_proxies_by_source)
         for source_url in raw_proxies_by_source:
@@ -340,7 +340,7 @@ async def test_cron_add_proxies_task_ignores_disabled_source(
         mocked_github_get_proxies_by_source({enabled_source.url: enabled_source_url}) as mocked_github,
         mocked_get_host_latency_for_urls(default_latency=42) as mocked_latency,
     ):
-        await cron_add_proxies_to_database_task(context=DummyContext(container=container))
+        await cron_add_new_proxies_to_database_task(context=DummyContext(container=container))
 
         assert mocked_github.calls.call_count == 1
         assert mocked_github.routes[source_route_name(enabled_source.url)].call_count == 1
@@ -387,7 +387,7 @@ async def test_cron_add_proxies_task_skips_already_saved_proxies(
         mocked_github_get_proxies(f"{existing_url}\n{new_url}") as mocked_github,
         mocked_get_host_latency_for_urls(default_latency=77) as mocked_latency,
     ):
-        await cron_add_proxies_to_database_task(context=DummyContext(container=container))
+        await cron_add_new_proxies_to_database_task(context=DummyContext(container=container))
 
         assert mocked_github.routes[GITHUB_PROXIES_ROUTE_NAME].call_count == 1
 
@@ -433,7 +433,7 @@ async def test_cron_add_proxies_task_recalculates_source_counters(
         mocked_github_get_proxies(f"{first_url}\n{second_url}") as mocked_github,
         mocked_get_host_latency_for_urls(latency_by_url),
     ):
-        await cron_add_proxies_to_database_task(context=DummyContext(container=container))
+        await cron_add_new_proxies_to_database_task(context=DummyContext(container=container))
 
         assert mocked_github.routes[GITHUB_PROXIES_ROUTE_NAME].call_count == 1
 
@@ -467,7 +467,7 @@ async def test_cron_add_proxies_task_sends_urls_over_chunk_size_to_taskiq(
         mocked_get_host_latency_for_urls(default_latency=55) as mocked_latency,
         mocked_taskiq_run() as mocked_taskiq,
     ):
-        await cron_add_proxies_to_database_task(context=DummyContext(container=container))
+        await cron_add_new_proxies_to_database_task(context=DummyContext(container=container))
 
         assert mocked_github.routes[GITHUB_PROXIES_ROUTE_NAME].call_count == 1
 

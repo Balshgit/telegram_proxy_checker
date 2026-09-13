@@ -9,7 +9,7 @@ from taskiq.exceptions import UnknownTaskError
 from taskiq.schedule_sources import LabelScheduleSource
 
 from app.core.proxies.tasks import (
-    cron_add_proxies_to_database_task,
+    cron_add_new_proxies_to_database_task,
     cron_delete_stale_proxies_task,
     cron_update_proxies_in_database_task,
     save_proxies_to_database_task,
@@ -58,11 +58,11 @@ def test_every_day_period_is_three_am() -> None:
 
 
 def test_add_proxies_task_is_registered_in_broker(broker: InMemoryBroker) -> None:
-    assert broker.find_task(taskiq_tasks.get_task_name(cron_add_proxies_to_database_task)) is not None
+    assert broker.find_task(taskiq_tasks.get_task_name(cron_add_new_proxies_to_database_task)) is not None
 
 
 def test_add_proxies_task_is_scheduled_every_six_hours(broker: InMemoryBroker) -> None:
-    task = broker.find_task(taskiq_tasks.get_task_name(cron_add_proxies_to_database_task))
+    task = broker.find_task(taskiq_tasks.get_task_name(cron_add_new_proxies_to_database_task))
 
     assert task.labels["schedule"] == [{"kwargs": {}, "cron": ADD_PROXIES_TASK_CRON}]
 
@@ -76,7 +76,7 @@ def test_add_proxies_task_is_retried_on_error(broker: InMemoryBroker) -> None:
     Единственная задача с ретраями: пропущенный добор проксей — это минус 6 часов свежих записей,
     поэтому разовая ошибка похода в github должна повторяться, а не молча гаситься до следующего крона.
     """
-    task = broker.find_task(taskiq_tasks.get_task_name(cron_add_proxies_to_database_task))
+    task = broker.find_task(taskiq_tasks.get_task_name(cron_add_new_proxies_to_database_task))
 
     assert {label: task.labels[label] for label in ADD_PROXIES_TASK_LABELS} == ADD_PROXIES_TASK_LABELS
 
@@ -164,7 +164,7 @@ async def test_label_schedule_source_picks_up_add_proxies_task(broker: InMemoryB
     add_proxies_schedules = [
         schedule
         for schedule in schedules
-        if schedule.task_name == taskiq_tasks.get_task_name(cron_add_proxies_to_database_task)
+        if schedule.task_name == taskiq_tasks.get_task_name(cron_add_new_proxies_to_database_task)
     ]
 
     assert len(add_proxies_schedules) == 1
@@ -228,12 +228,12 @@ class TestTaskiqTasksIsImmutable:
     def test_tasks_cannot_be_mutated_in_place(self) -> None:
         """`tuple`, а не `list`: дописать задачу в уже собранный реестр тоже нельзя."""
         with pytest.raises(AttributeError):
-            taskiq_tasks.TASKS.append(TaskConfig(func=cron_add_proxies_to_database_task))
+            taskiq_tasks.TASKS.append(TaskConfig(func=cron_add_new_proxies_to_database_task))
 
     def test_task_names_cannot_be_mutated_in_place(self) -> None:
         """`MappingProxyType`: кэш имён отдаётся только на чтение."""
         with pytest.raises(TypeError):
-            taskiq_tasks.task_names[cron_add_proxies_to_database_task] = "some_other_name"
+            taskiq_tasks.task_names[cron_add_new_proxies_to_database_task] = "some_other_name"
 
     def test_registry_has_no_instance_dict(self) -> None:
         """
@@ -261,7 +261,7 @@ class TestTaskiqTasksRegistry:
             "update_proxies_in_database_task",
             "cron_update_proxies_in_database_task",
             "cron_delete_stale_proxies_task",
-            "cron_add_proxies_to_database_task",
+            "cron_add_new_proxies_to_database_task",
         ]
 
     def test_registry_knows_only_its_own_tasks(self) -> None:

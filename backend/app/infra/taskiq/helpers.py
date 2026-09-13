@@ -9,7 +9,7 @@ from taskiq import AsyncBroker, InMemoryBroker, TaskiqResult
 from taskiq.exceptions import UnknownTaskError
 
 from app.core.proxies.tasks import (
-    cron_add_proxies_to_database_task,
+    cron_add_new_proxies_to_database_task,
     cron_delete_stale_proxies_task,
     cron_update_proxies_in_database_task,
     save_proxies_to_database_task,
@@ -110,7 +110,7 @@ taskiq_tasks = TaskiqTasks.build(
         labels={"timeout": 10, "retry_on_error": False, "max_retries": 0},
     ),
     TaskConfig(
-        func=cron_add_proxies_to_database_task,
+        func=cron_add_new_proxies_to_database_task,
         cron=TaskPeriodEnum.every_six_hours,
         labels={"timeout": 10, "retry_on_error": True, "max_retries": 2},
     ),
