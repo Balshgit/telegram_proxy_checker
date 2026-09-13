@@ -154,7 +154,7 @@ async def test_get_all_proxies_paginated(
 @pytest.mark.parametrize(
     "params, proxy_id",
     [
-        pytest.param({"proxy_status": ProxyStatusEnum.enabled}, 7, id="filter by enabled"),
+        pytest.param({"status": ProxyStatusEnum.enabled}, 7, id="filter by enabled"),
         pytest.param(
             {
                 "created_from": (datetime.now(tz=MOSCOW_TZ) - timedelta(days=2)).isoformat(),

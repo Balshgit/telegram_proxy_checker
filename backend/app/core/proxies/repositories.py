@@ -83,6 +83,9 @@ class ProxyRepository(BaseDBRepository):
         if filters.status:
             query = query.where(TelegramProxy.status == filters.status)
 
+        if filters.name:
+            query = query.where(TelegramProxy.name.ilike(f"%{filters.name}%"))
+
         async with self.session_wrap(session) as wrapped_session:
             proxies_page = await core_get_page(
                 selectable=query, session=wrapped_session, pagination=pagination, as_model=True

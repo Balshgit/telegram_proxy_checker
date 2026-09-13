@@ -10,6 +10,7 @@ from app.api.base_deps import get_offset_pagination
 from app.api.base_schemas import OkResponse
 from app.api.constants import PLAIN_TEXT_MEDIA_TYPE
 from app.api.exceptions import RequestParamValidationError, ResourceNotFoundByIDError
+from app.api.proxies.deps import get_proxy_filters
 from app.api.proxies.exceptions import NoProxiesAddedAPIError
 from app.api.proxies.serializers import (
     PaginatedTelegramProxyWithCountersSerializer,
@@ -45,17 +46,9 @@ router = APIRouter(route_class=TPCAPIRoute)
 async def get_paginated_proxies(
     proxy_service: Annotated[ProxyService, Depends(AsyncProvide[Container.services.proxy_service])],
     pagination: Annotated[OffsetPagination, Depends(get_offset_pagination)],
+    filters: Annotated[ProxyFilterDTO, Depends(get_proxy_filters)],
     order_by: Annotated[ProxyOrderByEnum, Query(..., description="Сортировать прокси")] = ProxyOrderByEnum.latency,
-    created_from: Annotated[
-        datetime | None, Query(..., description="Фильтровать от той даты, когда урлы прокси были создан")
-    ] = None,
-    created_to: Annotated[
-        datetime | None, Query(..., description="Фильтровать до той даты, когда урлы прокси были создан")
-    ] = None,
-    proxy_status: Annotated[ProxyStatusEnum | None, Query(..., description="Фильтр по статусу")] = None,
 ) -> PaginatedTelegramProxyWithCountersSerializer:
-
-    filters = ProxyFilterDTO(created_from=created_from, created_to=created_to, status=proxy_status)
 
     proxies_page_dto = await proxy_service.get_all_proxies(pagination=pagination, filters=filters, order_by=order_by)
     return PaginatedTelegramProxyWithCountersSerializer(

@@ -14,6 +14,7 @@ class ProxyFilterDTO:
     created_from: datetime | None = None
     created_to: datetime | None = None
     status: ProxyStatusEnum | None = None
+    name: str | None = None
 
     def __post_init__(self) -> None:
         self.created_from = self.created_from.replace(tzinfo=None) if self.created_from else None
