@@ -9,7 +9,7 @@ from taskiq.schedule_sources import LabelScheduleSource
 from taskiq.scheduler.scheduled_task import ScheduledTask
 
 from app.core.proxies.tasks import cron_update_proxies_in_database_task
-from app.infra.taskiq.helpers import get_task_name, register_tasks
+from app.infra.taskiq.helpers import taskiq_tasks
 from app.infra.taskiq.scheduler_runner import TaskiqSchedulerRunner
 from settings.config import AppTestSettings
 from tests.unit.infra.helpers import (
@@ -205,7 +205,7 @@ class TestRealCronTaskFirstRun:
     @pytest.fixture
     async def scheduler(self) -> TaskiqScheduler:
         broker = InMemoryBroker()
-        register_tasks(broker)
+        taskiq_tasks.register_tasks(broker)
         source = LabelScheduleSource(broker=broker)
         await source.startup()
         return TaskiqScheduler(broker=broker, sources=[source])
@@ -220,7 +220,7 @@ class TestRealCronTaskFirstRun:
 
     @staticmethod
     def _find_cron_schedule(scheduler_loop: SchedulerLoop) -> ScheduledTask:
-        task_name = get_task_name(cron_update_proxies_in_database_task)
+        task_name = taskiq_tasks.get_task_name(cron_update_proxies_in_database_task)
         schedules = [
             schedule
             for _, task_list in scheduler_loop.scheduled_tasks

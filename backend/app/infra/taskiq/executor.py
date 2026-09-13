@@ -5,7 +5,7 @@ from loguru import logger
 from taskiq import AsyncBroker, AsyncTaskiqTask, TaskiqResult
 from taskiq.exceptions import UnknownTaskError
 
-from app.infra.taskiq.helpers import get_task_name
+from app.infra.taskiq.helpers import taskiq_tasks
 
 
 class TaskiqTasksExecutor:
@@ -15,11 +15,11 @@ class TaskiqTasksExecutor:
     async def run(
         self, func: Callable[..., Any], params: dict[str, Any], execution_options: dict[str, Any] | None = None
     ) -> AsyncTaskiqTask[Any]:
-        task_name = get_task_name(func)
+        task_name = taskiq_tasks.get_task_name(func)
         logger.info("creating taskiq task", task_name=task_name, params=params)
         task = self.broker.find_task(task_name)
         if not task:
-            # task is not found in broker known tasks, mb you forgot to register it, check register_tasks()
+            # task is not found in broker known tasks, mb you forgot to register it, check taskiq_tasks list
             raise UnknownTaskError(task_name=task_name)
         if execution_options is None:
             execution_options = {}

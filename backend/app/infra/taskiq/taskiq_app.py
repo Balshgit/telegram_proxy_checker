@@ -8,7 +8,7 @@ from taskiq import (
 
 from app.di.dependency_injector import Container
 from app.infra.logging import configure_logging
-from app.infra.taskiq.helpers import register_tasks, run_task
+from app.infra.taskiq.helpers import taskiq_tasks
 from settings.config import AppSettings
 
 
@@ -17,7 +17,7 @@ class TaskiqApplication:
         self.broker = container.infra.taskiq_broker()
         self.scheduler = container.infra.taskiq_scheduler()
         self.add_event_handlers()
-        register_tasks(self.broker)
+        taskiq_tasks.register_tasks(self.broker)
         configure_logging(
             level=settings.LOG_LEVEL,
             enable_json_logs=settings.is_json_logs_enabled,
@@ -46,7 +46,7 @@ async def run_standalone_task(func: Callable[..., Any]) -> None:
     app = create_taskiq_application(settings=settings)
     broker = app.broker
     await broker.startup()
-    await run_task(broker, func)
+    await taskiq_tasks.run_task(broker, func)
     await broker.shutdown()
 
 
