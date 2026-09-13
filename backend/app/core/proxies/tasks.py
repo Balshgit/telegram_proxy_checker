@@ -1,10 +1,12 @@
 import typing
 from itertools import batched
 
+from loguru import logger
 from taskiq import Context, TaskiqDepends
 
 from app.core.proxies.constants import SAVE_POSTGRES_CHUNK_SIZE
 from app.core.proxies.dto import ProxySourceToPingDTO
+from app.core.proxies.exceptions import NoProxiesAddedException
 from app.core.proxies.utils import collect_source_ids
 from app.core.shared.utils import log_taskiq_decorator
 
@@ -69,4 +71,8 @@ async def cron_delete_stale_proxies_task(context: typing.Annotated[Context, Task
 async def cron_add_proxies_to_database_task(context: typing.Annotated[Context, TaskiqDepends()]) -> None:
 
     proxy_service: ProxyService = context.state.container.services.proxy_service()
-    await proxy_service.add_new_proxies()
+
+    try:
+        await proxy_service.add_new_proxies()
+    except NoProxiesAddedException:
+        logger.info("no new proxies added from cron task")
