@@ -5,6 +5,7 @@ import {
   createProxies,
   deleteAllProxies,
   deleteProxy,
+  deleteStaleProxies,
   fetchProxies,
   fetchProxy,
   fetchRawProxies,
@@ -262,6 +263,16 @@ describe('изменяющие эндпоинты', () => {
 
     expect(lastUrl()).toBe('/api/proxies')
     expect(lastInit().method).toBe('DELETE')
+  })
+
+  it('deleteStaleProxies шлёт DELETE /api/proxies/stale и переваривает пустой 202', async () => {
+    fetchMock.mockResolvedValue(makeResponse('', 202))
+
+    await deleteStaleProxies()
+
+    expect(lastUrl()).toBe('/api/proxies/stale')
+    expect(lastInit().method).toBe('DELETE')
+    expect(lastInit().body).toBeUndefined()
   })
 
   it('deleteProxy шлёт DELETE /api/proxies/{id} и переваривает пустой 204', async () => {

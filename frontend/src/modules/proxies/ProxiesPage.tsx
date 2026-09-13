@@ -11,6 +11,7 @@ import {
   createProxies,
   deleteAllProxies,
   deleteProxy,
+  deleteStaleProxies,
   fetchProxies,
   fetchProxy,
   fetchRawProxies,
@@ -60,7 +61,7 @@ import type { CopyScope, ProxiesQuery, SortField } from './helpers'
 
 import './ProxiesPage.css'
 
-type PendingAction = 'create' | 'delete' | 'refresh-all' | null
+type PendingAction = 'create' | 'delete' | 'delete-stale' | 'refresh-all' | null
 /** Что именно сейчас происходит с конкретной строкой таблицы. */
 type RowAction = 'refresh' | 'status' | 'delete'
 
@@ -149,6 +150,8 @@ function ProxiesPage({ nav }: ProxiesPageProps) {
   const [loadError, setLoadError] = useState<string | null>(null)
   const [pendingAction, setPendingAction] = useState<PendingAction>(null)
   const [isConfirmOpen, setIsConfirmOpen] = useState(false)
+  /** Отдельное подтверждение для чистки старых прокси: путать его с «удалить всё» нельзя. */
+  const [isStaleConfirmOpen, setIsStaleConfirmOpen] = useState(false)
   /** Прокси, для которой открыт диалог подтверждения удаления одной строки. */
   const [proxyToDelete, setProxyToDelete] = useState<TelegramProxy | null>(null)
   const [isMenuOpen, setIsMenuOpen] = useState(false)
@@ -361,6 +364,29 @@ function ProxiesPage({ nav }: ProxiesPageProps) {
       await loadProxies()
     } catch (error) {
       pushToast('error', error instanceof ApiRequestError ? error.message : 'Не удалось удалить прокси')
+    } finally {
+      setPendingAction(null)
+    }
+  }, [loadProxies, pushToast, updateQuery])
+
+  /**
+   * DELETE /api/proxies/stale — чистка протухших прокси.
+   *
+   * Бекенд сам решает, что считать протухшим, и не возвращает количество удалённого,
+   * поэтому после успеха просто перезагружаем список: счётчики придут уже новые.
+   * Смещение сбрасываем — страницы могло стать меньше.
+   */
+  const handleDeleteStale = useCallback(async () => {
+    setIsStaleConfirmOpen(false)
+    setIsMenuOpen(false)
+    setPendingAction('delete-stale')
+    try {
+      await deleteStaleProxies()
+      pushToast('success', 'Старые прокси очищены')
+      updateQuery({ offset: 0 })
+      await loadProxies()
+    } catch (error) {
+      pushToast('error', error instanceof ApiRequestError ? error.message : 'Не удалось очистить старые прокси')
     } finally {
       setPendingAction(null)
     }
@@ -850,8 +876,10 @@ function ProxiesPage({ nav }: ProxiesPageProps) {
             </button>
 
             {/*
-              Опасное «удалить всё» намеренно спрятано в неприметное меню «⋯»,
-              чтобы его нельзя было нажать мимоходом рядом с обычными действиями.
+              Опасные массовые удаления намеренно спрятаны в неприметное меню «⋯»,
+              чтобы их нельзя было нажать мимоходом рядом с обычными действиями.
+              Внутри меню порядок от щадящего к разрушительному: сначала точечная
+              чистка старых прокси, потом полное стирание базы.
             */}
             <div className="more-menu" ref={menuRef}>
               <button
@@ -865,12 +893,32 @@ function ProxiesPage({ nav }: ProxiesPageProps) {
                 aria-expanded={isMenuOpen}
               >
                 <span className="icon-btn__glyph" aria-hidden="true">
-                  {pendingAction === 'delete' ? <span className="btn__spinner" /> : '⋯'}
+                  {pendingAction === 'delete' || pendingAction === 'delete-stale' ? (
+                    <span className="btn__spinner" />
+                  ) : (
+                    '⋯'
+                  )}
                 </span>
               </button>
 
               {isMenuOpen && (
                 <div className="more-menu__popup" role="menu">
+                  <button
+                    type="button"
+                    className="more-menu__item"
+                    role="menuitem"
+                    onClick={() => {
+                      setIsMenuOpen(false)
+                      setIsStaleConfirmOpen(true)
+                    }}
+                    disabled={isBusy || (total === 0 && !isLoading)}
+                  >
+                    <span className="more-menu__icon" aria-hidden="true">
+                      🧹
+                    </span>
+                    Очистить старые прокси
+                  </button>
+
                   <button
                     type="button"
                     className="more-menu__item more-menu__item--danger"
@@ -1196,6 +1244,16 @@ function ProxiesPage({ nav }: ProxiesPageProps) {
           confirmLabel="Удалить всё"
           onConfirm={() => void handleDeleteAll()}
           onCancel={() => setIsConfirmOpen(false)}
+        />
+      )}
+
+      {isStaleConfirmOpen && (
+        <ConfirmDialog
+          title="Очистить старые прокси?"
+          text="Будут удалены только прокси, которые давно не выходили на связь. Срок протухания задан на бекенде."
+          confirmLabel="Очистить"
+          onConfirm={() => void handleDeleteStale()}
+          onCancel={() => setIsStaleConfirmOpen(false)}
         />
       )}
 

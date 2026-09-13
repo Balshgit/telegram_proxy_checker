@@ -8,6 +8,7 @@ import {
   createProxies,
   deleteAllProxies,
   deleteProxy,
+  deleteStaleProxies,
   fetchProxies,
   fetchProxy,
   fetchRawProxies,
@@ -33,6 +34,7 @@ vi.mock('./api', async (importOriginal) => {
     createProxies: vi.fn(),
     updateAllProxies: vi.fn(),
     deleteAllProxies: vi.fn(),
+    deleteStaleProxies: vi.fn(),
     deleteProxy: vi.fn(),
     updateProxy: vi.fn(),
   }
@@ -139,6 +141,7 @@ beforeEach(() => {
   vi.mocked(createProxies).mockResolvedValue('created')
   vi.mocked(updateAllProxies).mockResolvedValue(undefined)
   vi.mocked(deleteAllProxies).mockResolvedValue(undefined)
+  vi.mocked(deleteStaleProxies).mockResolvedValue(undefined)
   vi.mocked(deleteProxy).mockResolvedValue(undefined)
   vi.mocked(updateProxy).mockResolvedValue(undefined)
   vi.mocked(fetchProxiesSources).mockResolvedValue([githubSource, backupSource])
@@ -157,13 +160,20 @@ function lastFetchArgs() {
   return vi.mocked(fetchProxies).mock.calls.at(-1)?.[0]
 }
 
-/**
- * «Удалить все прокси» спрятано в меню «⋯»: сначала открываем меню,
- * потом возвращаем пункт из него.
- */
+/** Массовые удаления спрятаны в меню «⋯»: открываем его и отдаём область поиска по пунктам. */
 async function openMoreMenu(user: ReturnType<typeof setupUser>) {
   await user.click(screen.getByLabelText('Ещё действия'))
-  return within(screen.getByRole('menu')).getByRole('menuitem', { name: /Удалить все прокси/u })
+  return within(screen.getByRole('menu'))
+}
+
+/** Пункт «Удалить все прокси» из меню «⋯». */
+async function openDeleteAllItem(user: ReturnType<typeof setupUser>) {
+  return (await openMoreMenu(user)).getByRole('menuitem', { name: /Удалить все прокси/u })
+}
+
+/** Пункт «Очистить старые прокси» из меню «⋯». */
+async function openCleanupItem(user: ReturnType<typeof setupUser>) {
+  return (await openMoreMenu(user)).getByRole('menuitem', { name: /Очистить старые прокси/u })
 }
 
 describe('загрузка списка', () => {
@@ -381,6 +391,7 @@ describe('массовые действия', () => {
 
     expect(screen.queryByRole('menu')).not.toBeInTheDocument()
     expect(screen.queryByText('Удалить все прокси')).not.toBeInTheDocument()
+    expect(screen.queryByText('Очистить старые прокси')).not.toBeInTheDocument()
 
     await openMoreMenu(user)
 
@@ -390,7 +401,7 @@ describe('массовые действия', () => {
   it('удаление всех прокси требует подтверждения', async () => {
     const user = await renderLoadedPage()
 
-    await user.click(await openMoreMenu(user))
+    await user.click(await openDeleteAllItem(user))
     expect(screen.getByRole('dialog')).toBeInTheDocument()
     expect(deleteAllProxies).not.toHaveBeenCalled()
 
@@ -403,11 +414,59 @@ describe('массовые действия', () => {
   it('отмена в модалке ничего не удаляет', async () => {
     const user = await renderLoadedPage()
 
-    await user.click(await openMoreMenu(user))
+    await user.click(await openDeleteAllItem(user))
     await user.click(screen.getByRole('button', { name: 'Отмена' }))
 
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
     expect(deleteAllProxies).not.toHaveBeenCalled()
+  })
+
+  it('«Очистить старые прокси» стоит в меню выше «Удалить все прокси»', async () => {
+    const user = await renderLoadedPage()
+
+    const items = (await openMoreMenu(user)).getAllByRole('menuitem')
+
+    expect(items).toHaveLength(2)
+    expect(items[0]).toHaveAccessibleName(/Очистить старые прокси/u)
+    expect(items[1]).toHaveAccessibleName(/Удалить все прокси/u)
+  })
+
+  it('очистка старых прокси требует подтверждения и дёргает DELETE /api/proxies/stale', async () => {
+    const user = await renderLoadedPage()
+    const callsBefore = vi.mocked(fetchProxies).mock.calls.length
+
+    await user.click(await openCleanupItem(user))
+    expect(screen.getByRole('dialog')).toBeInTheDocument()
+    expect(deleteStaleProxies).not.toHaveBeenCalled()
+
+    await user.click(screen.getByRole('button', { name: 'Очистить' }))
+
+    await waitFor(() => expect(deleteStaleProxies).toHaveBeenCalledTimes(1))
+    expect(await screen.findByText('Старые прокси очищены')).toBeInTheDocument()
+    // Список перечитывается: сколько именно удалилось, бекенд не сообщает.
+    await waitFor(() => expect(vi.mocked(fetchProxies).mock.calls.length).toBeGreaterThan(callsBefore))
+    expect(deleteAllProxies).not.toHaveBeenCalled()
+  })
+
+  it('отмена в модалке очистки ничего не чистит', async () => {
+    const user = await renderLoadedPage()
+
+    await user.click(await openCleanupItem(user))
+    await user.click(screen.getByRole('button', { name: 'Отмена' }))
+
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(deleteStaleProxies).not.toHaveBeenCalled()
+  })
+
+  it('ошибка очистки показывает текст бекенда и не трогает список', async () => {
+    vi.mocked(deleteStaleProxies).mockRejectedValue(new ApiRequestError('Очистка недоступна', 500))
+    const user = await renderLoadedPage()
+
+    await user.click(await openCleanupItem(user))
+    await user.click(screen.getByRole('button', { name: 'Очистить' }))
+
+    expect(await screen.findByText('Очистка недоступна')).toBeInTheDocument()
+    expect(screen.getByText('Первая прокси')).toBeInTheDocument()
   })
 
   it('«Обновить прокси» дёргает POST /api/proxies/status и перезагружает список', async () => {

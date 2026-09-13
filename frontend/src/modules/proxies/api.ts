@@ -208,6 +208,17 @@ export async function deleteAllProxies(): Promise<void> {
   await apiRequest<never>('/proxies', { method: 'DELETE' })
 }
 
+/**
+ * DELETE /api/proxies/stale — удаляет прокси, которые давно не выходили на связь.
+ *
+ * Срок протухания знает только бекенд (`PROXY_STALE_PERIOD`), фронт его не передаёт.
+ * Сколько записей удалилось, ответ не сообщает (пустой 202), поэтому список после
+ * успеха нужно перезагрузить.
+ */
+export async function deleteStaleProxies(): Promise<void> {
+  await apiRequest<never>('/proxies/stale', { method: 'DELETE' })
+}
+
 /** DELETE /api/proxies/{id} — удаляет одну прокси. Ответ пустой (204). */
 export async function deleteProxy(proxyId: number): Promise<void> {
   await apiRequest<never>(`/proxies/${proxyId}`, { method: 'DELETE' })

@@ -285,6 +285,12 @@
   cursor: not-allowed;
 }
 
+/* Объявлено до `--danger`: у правил одинаковая специфичность, и красная подсветка
+   опасного пункта должна перекрывать эту нейтральную, а не наоборот. */
+.more-menu__item:not(:disabled):hover {
+  background: rgba(255, 255, 255, 0.07);
+}
+
 .more-menu__item--danger {
   color: #ff8a8c;
 }
@@ -292,6 +298,14 @@
 .more-menu__item--danger:not(:disabled):hover {
   background: rgba(255, 77, 79, 0.16);
   color: #ff6b6d;
+}
+
+/* Щадящая чистка и полное стирание базы не должны стоять вплотную:
+   разделитель даёт паузу и страхует от промаха мышью. */
+.more-menu__item + .more-menu__item--danger {
+  margin-top: 5px;
+  padding-top: 13px;
+  border-top: 1px solid var(--glass-border);
 }
 
 .more-menu__icon {
