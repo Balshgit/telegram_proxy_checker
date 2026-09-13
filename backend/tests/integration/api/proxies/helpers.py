@@ -1,12 +1,13 @@
 from collections.abc import AsyncGenerator, Mapping
 from contextlib import asynccontextmanager
+from datetime import datetime, timedelta
 from typing import Any, cast
 from unittest.mock import AsyncMock, patch
 
 import respx
 from httpx import URL, Response
 from respx import MockRouter
-from sqlalchemy import select
+from sqlalchemy import DateTime, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.constants import PLAIN_TEXT_MEDIA_TYPE
@@ -15,6 +16,7 @@ from app.core.proxies.constants import ProxyStatusEnum
 from app.core.proxies.dto import ProxyBaseDTO, ProxySourceToPingDTO
 from app.core.proxies.models import TelegramProxy
 from app.core.proxies_sources.constants import GITHUB_RAW_BASE_URL
+from app.core.proxies_sources.models import TelegramProxiesSource
 from app.infra.gateways.github_gateway import GithubGateway
 from app.infra.taskiq.executor import TaskiqTasksExecutor
 
@@ -28,6 +30,11 @@ PROXY_SECRET = "ee1337"
 MISSING_PROXY_ID = 999_999
 
 CHUNK_SIZE_FOR_TESTS = 5
+
+#: Отступ от границы протухания, с которым тесты ставят даты «заведомо старше» и «заведомо свежее».
+#: Запас маленький намеренно: `now()` в postgres — это время начала транзакции, а тест и приложение
+#: работают в одной транзакции (см. фикстуру `override_db_sessions`), поэтому граница у них общая.
+STALE_BORDER_MARGIN = timedelta(minutes=1)
 
 #: Имя kwarg, с которым сервис зовёт `GithubGateway.get_host_latency_for_urls`.
 PING_URLS_KWARG = "urls_with_source"
@@ -94,6 +101,52 @@ async def get_proxies_by_id(session: AsyncSession) -> dict[int, TelegramProxy]:
     query = select(TelegramProxy).execution_options(populate_existing=True)
     proxies = (await session.execute(query)).scalars().all()
     return {proxy.id: proxy for proxy in proxies}
+
+
+async def get_proxies_ids(session: AsyncSession) -> set[int]:
+    """
+    Id проксей, которые остались в базе.
+
+    Читается колонкой, а не объектами: массовое удаление идёт с `synchronize_session=False`,
+    и в identity map остаются уже удалённые записи.
+    """
+    return set((await session.execute(select(TelegramProxy.id))).scalars().all())
+
+
+async def get_source_by_id(session: AsyncSession, source_id: int) -> TelegramProxiesSource:
+    """
+    Источник из базы с принудительным перечитыванием.
+
+    `populate_existing` обязателен: счётчики пересчитываются запросом `UPDATE ... FROM`, и без
+    перечитывания тест сверял бы значения из identity map, а не из базы.
+    """
+    query = (
+        select(TelegramProxiesSource)
+        .where(TelegramProxiesSource.id == source_id)
+        .execution_options(populate_existing=True)
+    )
+    return cast(TelegramProxiesSource, (await session.execute(query)).scalars().one())
+
+
+async def get_database_now(session: AsyncSession) -> datetime:
+    """
+    «Сейчас» глазами базы, приведённое к наивному виду ровно так же, как это делает запись `func.now()`
+    в колонку `timestamp without time zone`.
+
+    Брать `datetime.now()` в python нельзя: пояс приложения (`TIME_ZONE`) и пояс сессии postgres
+    не обязаны совпадать, и тест разъехался бы с реальным сравнением на часы.
+    """
+    return cast(datetime, (await session.execute(select(func.now().cast(DateTime)))).scalar_one())
+
+
+def stale_moment(database_now: datetime, stale_period: timedelta) -> datetime:
+    """Момент, который заведомо старше границы протухания."""
+    return database_now - stale_period - STALE_BORDER_MARGIN
+
+
+def fresh_moment(database_now: datetime, stale_period: timedelta) -> datetime:
+    """Момент, который заведомо свежее границы протухания — прокси с такой датой удалять нельзя."""
+    return database_now - stale_period + STALE_BORDER_MARGIN
 
 
 @asynccontextmanager

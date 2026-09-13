@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from datetime import timedelta
 from itertools import chain
 
 from sqlakeyset import Page
@@ -24,6 +25,7 @@ class ProxyService:
     proxy_source_service: ProxySourceService
     github_gateway: GithubGateway
     taskiq_tasks_executor: TaskiqTasksExecutor
+    stale_period: timedelta
 
     async def get_all_proxies(
         self,
@@ -154,6 +156,11 @@ class ProxyService:
         async with self.repository.get_transactional_session() as session:
             await self.repository.delete_proxies(session=session)
             await self.proxy_source_service.recalculate_counters(session=session)
+
+    async def delete_stale_proxies(self) -> None:
+        async with self.repository.get_transactional_session() as session:
+            source_ids = await self.repository.delete_stale_proxies(stale_period=self.stale_period, session=session)
+            await self.proxy_source_service.recalculate_counters(source_ids=set(source_ids), session=session)
 
     async def update_all_proxies(self) -> None:
         async with self.repository.get_transactional_session() as session:

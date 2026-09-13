@@ -9,6 +9,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 from settings.infra import (
     DatabaseSettings,
     LoggingSettings,
+    ProxySettings,
     TaskiqSettings,
     TestDatabaseSettings,
 )
@@ -37,6 +38,7 @@ class BaseAppSettings(BaseSettings):
 
 
 class AppSettings(
+    ProxySettings,
     TaskiqSettings,
     LoggingSettings,
     DatabaseSettings,
