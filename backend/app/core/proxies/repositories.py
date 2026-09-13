@@ -143,6 +143,8 @@ class ProxyRepository(BaseDBRepository):
             proxy.latency = latency
         if status:
             proxy.status = status
+            if status == ProxyStatusEnum.enabled:
+                proxy.last_active_at = func.now()
         proxy.updated_at = func.now()
 
         async with self.session_wrap(session) as wrapped_session:
@@ -158,8 +160,9 @@ class ProxyRepository(BaseDBRepository):
             TelegramProxy.name,
             TelegramProxy.latency,
             TelegramProxy.status,
+            TelegramProxy.last_active_at,
             name="new_proxies_values",
-        ).data([(proxy.name, proxy.latency, proxy.status.value) for proxy in proxies_dto])
+        ).data([(proxy.name, proxy.latency, proxy.status.value, proxy.last_active_at) for proxy in proxies_dto])
 
         query = (
             update(TelegramProxy)
@@ -168,6 +171,9 @@ class ProxyRepository(BaseDBRepository):
                 latency=cast(new_values.c.latency, Integer),
                 status=new_values.c.status,
                 updated_at=func.now(),
+                last_active_at=(
+                    func.now() if new_values.c.status == ProxyStatusEnum.enabled else TelegramProxy.last_active_at
+                ),
             )
             .returning(TelegramProxy)
             .execution_options(synchronize_session=False)

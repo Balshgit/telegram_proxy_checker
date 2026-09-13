@@ -30,8 +30,8 @@ export const STATUS_FILTERS: { value: StatusFilter; label: string }[] = [
  * Имя query-параметра фильтра на `/proxies/sources`.
  *
  * Не просто `status`, как в GET /api/proxies/sources: на соседней странице
- * проксей уже есть `proxy_status`, и одинаковый префикс делает оба адреса
- * самоописательными — видно, чей это статус.
+ * проксей `status` — это статус прокси, и префикс здесь снимает двусмысленность,
+ * когда два адреса лежат рядом в закладках или в истории.
  */
 export const SOURCES_STATUS_QUERY_KEY = 'source_status'
 

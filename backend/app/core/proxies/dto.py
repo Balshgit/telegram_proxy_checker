@@ -28,6 +28,7 @@ class ProxyBaseDTO:
     source_id: int | None
     latency: int | None = None
     status: ProxyStatusEnum
+    last_active_at: datetime | None = None
 
 
 @dataclass(slots=True, kw_only=True)

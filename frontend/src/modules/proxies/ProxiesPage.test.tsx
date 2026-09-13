@@ -17,7 +17,7 @@ import {
 import type { ProxiesPageResult, TelegramProxy } from './api'
 import { fetchProxiesSources } from '../proxies-sources/api'
 import type { ProxySource } from '../proxies-sources/api'
-import { SHARE_PAGE, UNKNOWN_SOURCE_LABEL } from './helpers'
+import { NAME_FILTER, SHARE_PAGE, UNKNOWN_SOURCE_LABEL } from './helpers'
 
 /**
  * Сетевой слой мокаем целиком, но настоящий ApiRequestError оставляем:
@@ -608,6 +608,101 @@ describe('сортировка', () => {
   })
 })
 
+describe('поиск по имени', () => {
+  /** Поле поиска в тулбаре. */
+  function nameInput() {
+    return screen.getByLabelText(NAME_FILTER.title)
+  }
+
+  it('набранное имя уезжает в запрос к бекенду и сбрасывает страницу', async () => {
+    const user = await renderLoadedPage()
+
+    await user.click(screen.getByLabelText('Следующая страница'))
+    await waitFor(() => expect(lastFetchArgs()).toMatchObject({ offset: 10 }))
+
+    await user.type(nameInput(), 'alpha')
+
+    // Запрос уходит не сразу: значение придерживается на время дебаунса.
+    await waitFor(() => expect(lastFetchArgs()).toMatchObject({ name: 'alpha', offset: 0 }))
+  })
+
+  it('пока идёт набор, запрос не уходит на каждую букву', async () => {
+    const user = await renderLoadedPage()
+    const callsBefore = vi.mocked(fetchProxies).mock.calls.length
+
+    await user.type(nameInput(), 'alpha')
+
+    await waitFor(() => expect(lastFetchArgs()).toMatchObject({ name: 'alpha' }))
+    // Пять нажатий — один запрос, иначе дебаунс не работает.
+    expect(vi.mocked(fetchProxies).mock.calls.length).toBe(callsBefore + 1)
+  })
+
+  it('поиск попадает в адрес', async () => {
+    const user = await renderLoadedPage()
+
+    await user.type(nameInput(), 'alpha')
+
+    await waitFor(() => expect(window.location.search).toBe('?name=alpha'))
+  })
+
+  it('прямая ссылка с поиском сразу уходит в запрос и заполняет поле', async () => {
+    window.history.replaceState({}, '', '/proxies?name=alpha')
+    await renderLoadedPage()
+
+    expect(lastFetchArgs()).toMatchObject({ name: 'alpha' })
+    expect(nameInput()).toHaveValue('alpha')
+  })
+
+  it('пустой поиск в запрос не уходит', async () => {
+    await renderLoadedPage()
+
+    expect(lastFetchArgs()).toMatchObject({ name: null })
+  })
+
+  it('крестик сбрасывает поиск и очищает поле', async () => {
+    window.history.replaceState({}, '', '/proxies?name=alpha')
+    const user = await renderLoadedPage()
+
+    await user.click(screen.getByLabelText(NAME_FILTER.clear))
+
+    await waitFor(() => expect(lastFetchArgs()).toMatchObject({ name: null }))
+    expect(nameInput()).toHaveValue('')
+    expect(window.location.search).toBe('')
+  })
+
+  it('пока поиск задан, размер выборки не показывается', async () => {
+    /*
+     * Счётчики бекенда считаются по всей базе, поэтому под поиском «из 30» было бы
+     * неправдой: сколько прокси попало под подстроку, бекенд не сообщает.
+     */
+    window.history.replaceState({}, '', '/proxies?name=alpha')
+    await renderLoadedPage()
+
+    expect(screen.getByText(/^Показано 1–2$/u)).toBeInTheDocument()
+    expect(screen.getByLabelText('Последняя страница')).toBeDisabled()
+  })
+
+  it('в пустом состоянии показывает запрос и кнопку сброса', async () => {
+    window.history.replaceState({}, '', '/proxies?name=alpha')
+    vi.mocked(fetchProxies).mockResolvedValue(
+      pageResult({
+        items: [],
+        pagination: { next_page: null, previous_page: null },
+      }),
+    )
+    const user = setupUser()
+
+    render(<ProxiesPage />)
+
+    expect(await screen.findByText('Прокси не найдены')).toBeInTheDocument()
+    expect(screen.getByText(/«alpha»/u)).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: NAME_FILTER.clearAction }))
+
+    await waitFor(() => expect(lastFetchArgs()).toMatchObject({ name: null }))
+  })
+})
+
 describe('состояние в адресной строке', () => {
   /** Открывает страницу по конкретному адресу и дожидается первой порции данных. */
   async function renderAt(url: string) {
@@ -637,12 +732,12 @@ describe('состояние в адресной строке', () => {
     await user.selectOptions(screen.getByLabelText('Сортировка списка'), 'created_at_desc')
 
     await waitFor(() =>
-      expect(window.location.search).toBe('?limit=25&proxy_status=all&order_by=created_at_desc'),
+      expect(window.location.search).toBe('?limit=25&status=all&order_by=created_at_desc'),
     )
   })
 
   it('прямая ссылка с параметрами сразу уходит в запрос к бекенду', async () => {
-    await renderAt('/proxies?limit=25&offset=50&proxy_status=disabled&order_by=created_at_desc')
+    await renderAt('/proxies?limit=25&offset=50&status=disabled&order_by=created_at_desc')
 
     expect(lastFetchArgs()).toMatchObject({
       limit: 25,
@@ -652,7 +747,7 @@ describe('состояние в адресной строке', () => {
     })
     // Адрес валидный — переписывать его не за чем.
     expect(window.location.search).toBe(
-      '?limit=25&offset=50&proxy_status=disabled&order_by=created_at_desc',
+      '?limit=25&offset=50&status=disabled&order_by=created_at_desc',
     )
   })
 
@@ -663,7 +758,7 @@ describe('состояние в адресной строке', () => {
   })
 
   it('мусор и значения по умолчанию из адреса вычищаются', async () => {
-    await renderAt('/proxies?limit=7&offset=abc&proxy_status=broken&utm_source=telegram')
+    await renderAt('/proxies?limit=7&offset=abc&status=broken&utm_source=telegram')
 
     await waitFor(() => expect(window.location.search).toBe(''))
     expect(lastFetchArgs()).toMatchObject({ limit: 10, offset: 0, status: 'enabled' })

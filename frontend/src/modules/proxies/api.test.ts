@@ -81,14 +81,41 @@ describe('fetchProxies', () => {
     expect(result.share).toBe('https://t.me/proxy?server=1\nhttps://t.me/proxy?server=2')
   })
 
-  it('добавляет proxy_status, только когда фильтр задан', async () => {
+  it('добавляет status, только когда фильтр задан', async () => {
     fetchMock.mockResolvedValue(jsonResponse({ status: 200, payload: null }))
 
     await fetchProxies({ limit: 25, offset: 50, status: 'disabled' })
-    expect(lastUrl()).toBe('/api/proxies?limit=25&offset=50&proxy_status=disabled')
+    expect(lastUrl()).toBe('/api/proxies?limit=25&offset=50&status=disabled')
 
     await fetchProxies({ limit: 25, offset: 50, status: null })
     expect(lastUrl()).toBe('/api/proxies?limit=25&offset=50')
+  })
+
+  it('добавляет name, только когда поиск задан', async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ status: 200, payload: null }))
+
+    await fetchProxies({ limit: 10, offset: 0, name: 'alpha' })
+    expect(lastUrl()).toBe('/api/proxies?limit=10&offset=0&name=alpha')
+
+    await fetchProxies({ limit: 10, offset: 0, name: null })
+    expect(lastUrl()).toBe('/api/proxies?limit=10&offset=0')
+
+    await fetchProxies({ limit: 10, offset: 0, name: '' })
+    expect(lastUrl()).toBe('/api/proxies?limit=10&offset=0')
+  })
+
+  it('экранирует поиск по имени', async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ status: 200, payload: null }))
+
+    await fetchProxies({ limit: 10, offset: 0, name: 'альфа & бета' })
+    expect(lastUrl()).toBe('/api/proxies?limit=10&offset=0&name=%D0%B0%D0%BB%D1%8C%D1%84%D0%B0+%26+%D0%B1%D0%B5%D1%82%D0%B0')
+  })
+
+  it('передаёт status и name вместе', async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ status: 200, payload: null }))
+
+    await fetchProxies({ limit: 10, offset: 0, status: 'enabled', name: 'alpha', orderBy: 'latency_desc' })
+    expect(lastUrl()).toBe('/api/proxies?limit=10&offset=0&status=enabled&name=alpha&order_by=latency_desc')
   })
 
   it('добавляет order_by, только когда сортировка задана', async () => {
@@ -159,7 +186,7 @@ describe('fetchRawProxies', () => {
     expect(urls).toEqual(['https://t.me/a', 'https://t.me/b'])
   })
 
-  it('использует query-параметр status (не proxy_status)', async () => {
+  it('фильтрует выгрузку query-параметром status', async () => {
     fetchMock.mockResolvedValue(makeResponse(''))
 
     await fetchRawProxies({ status: 'enabled' })
