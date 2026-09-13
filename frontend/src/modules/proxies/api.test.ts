@@ -54,6 +54,7 @@ const proxyFixture: TelegramProxy = {
   source_name: 'MTProto list',
   created_at: '2024-05-01T10:00:00Z',
   updated_at: null,
+  last_active_at: '2024-05-04T09:30:00Z',
   status: 'enabled',
   latency: 120,
 }

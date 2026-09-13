@@ -23,5 +23,5 @@ class ServicesContainer(containers.DeclarativeContainer):
         proxy_source_service=proxy_source_service,
         github_gateway=gateways.github_gateway,
         taskiq_tasks_executor=infra.taskiq_tasks_executor,
-        stale_period=config.PROXY_STALE_PERIOD,
+        PROXY_STALE_PERIOD=config.PROXY_STALE_PERIOD,
     )

@@ -1020,6 +1020,23 @@ function ProxiesPage({ nav }: ProxiesPageProps) {
                       </button>
                     </th>
                     <th className="col-date">Обновлён</th>
+                    <th
+                      className={`col-date is-sortable${sort.field === 'last_active_at' ? ' is-sorted' : ''}`}
+                      aria-sort={ariaSortFor(sort, 'last_active_at')}
+                    >
+                      <button
+                        type="button"
+                        className="sort-btn"
+                        onClick={() => handleSort('last_active_at')}
+                        disabled={isBusy}
+                        title={`Сортировать по ${SORT_FIELD_LABELS.last_active_at}`}
+                      >
+                        Активна
+                        <span className="sort-btn__glyph" aria-hidden="true">
+                          {sortGlyph(sort, 'last_active_at')}
+                        </span>
+                      </button>
+                    </th>
                     <th className="col-actions">Действия</th>
                   </tr>
                 </thead>
@@ -1095,6 +1112,10 @@ function ProxiesPage({ nav }: ProxiesPageProps) {
                         </td>
                         <td className="col-date muted" data-label="Обновлён">
                           {formatDate(proxy.updated_at)}
+                        </td>
+                        {/* Прочерк здесь значит «активной ещё ни разу не была», его рисует formatDate. */}
+                        <td className="col-date muted" data-label="Активна">
+                          {formatDate(proxy.last_active_at)}
                         </td>
                         <td className="col-actions">
                           <div className="row-actions">

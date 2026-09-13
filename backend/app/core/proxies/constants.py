@@ -21,3 +21,5 @@ class ProxyOrderByEnum(StrEnum):
     latency = "latency"
     created_at_desc = "created_at_desc"
     created_at = "created_at"
+    last_active_at_desc = "last_active_at_desc"
+    last_active_at = "last_active_at"

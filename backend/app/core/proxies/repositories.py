@@ -3,7 +3,19 @@ from datetime import timedelta
 from typing import Any
 
 from sqlakeyset import Page
-from sqlalchemy import ColumnElement, Integer, case, cast, delete, func, select, update, values
+from sqlalchemy import (
+    ColumnElement,
+    Integer,
+    case,
+    cast,
+    delete,
+    func,
+    nulls_first,
+    nulls_last,
+    select,
+    update,
+    values,
+)
 from sqlalchemy.exc import NoResultFound
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload, load_only
@@ -64,6 +76,8 @@ class ProxyRepository(BaseDBRepository):
             ProxyOrderByEnum.created_at_desc: TelegramProxy.created_at.desc(),
             ProxyOrderByEnum.latency: TelegramProxy.latency.asc(),
             ProxyOrderByEnum.latency_desc: TelegramProxy.latency.desc(),
+            ProxyOrderByEnum.last_active_at: nulls_first(TelegramProxy.last_active_at.asc()),
+            ProxyOrderByEnum.last_active_at_desc: nulls_last(TelegramProxy.last_active_at.desc()),
         }
 
         query = (
@@ -133,16 +147,8 @@ class ProxyRepository(BaseDBRepository):
 
     async def delete_stale_proxies(self, stale_period: timedelta, session: AsyncSession | None = None) -> list[int]:
         """
-        Удаляет прокси, которые дольше `stale_period` не выходили на связь.
-
         Протухшей считается прокси, у которой `last_active_at` старше границы, а если активной она ещё
         не была (`last_active_at IS NULL`) — то прокси, у которой старше границы `created_at`.
-
-        Граница считается временем базы (`now()`), а не приложения: обе даты тоже пишутся через `func.now()`,
-        поэтому сравнение остаётся в одних часах, даже если пояс приложения отличается от пояса базы.
-
-        Возвращает `source_id` удалённых записей — по ним пересчитываются счётчики источников.
-        Прокси без источника в результат не попадают: пересчитывать по ним нечего.
         """
         stale_border = func.now() - stale_period
         last_seen_at = func.coalesce(TelegramProxy.last_active_at, TelegramProxy.created_at)

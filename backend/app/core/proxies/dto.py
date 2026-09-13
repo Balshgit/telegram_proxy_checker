@@ -36,6 +36,7 @@ class ProxyDTO(ProxyBaseDTO):
     source_name: str | None
     created_at: datetime | None
     updated_at: datetime | None = None
+    last_active_at: datetime | None = None
 
 
 @dataclass(slots=True, kw_only=True)

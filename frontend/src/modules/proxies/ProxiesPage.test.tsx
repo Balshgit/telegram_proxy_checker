@@ -19,6 +19,7 @@ import type { ProxiesPageResult, TelegramProxy } from './api'
 import { fetchProxiesSources } from '../proxies-sources/api'
 import type { ProxySource } from '../proxies-sources/api'
 import { NAME_FILTER, SHARE_PAGE, UNKNOWN_SOURCE_LABEL } from './helpers'
+import { formatDate } from '../../shared/ui/format'
 
 /**
  * Сетевой слой мокаем целиком, но настоящий ApiRequestError оставляем:
@@ -79,6 +80,7 @@ const proxyOne: TelegramProxy = {
   source_name: 'MTProto list',
   created_at: '2024-05-01T10:00:00Z',
   updated_at: null,
+  last_active_at: '2024-05-04T09:30:00Z',
   status: 'enabled',
   latency: 120,
 }
@@ -90,6 +92,8 @@ const proxyTwo: TelegramProxy = {
   source_name: null,
   created_at: '2024-05-02T10:00:00Z',
   updated_at: '2024-05-03T10:00:00Z',
+  // Никогда не была активной — в таблице на её месте прочерк.
+  last_active_at: null,
   status: 'enabled',
   latency: null,
 }
@@ -155,6 +159,12 @@ async function renderLoadedPage() {
   return user
 }
 
+/**
+ * Позиция колонки «Активна» в таблице: ID, Прокси, Статус, Пинг, Создан, Обновлён, Активна, Действия.
+ * Индекс, а не текстовый поиск: тест должен ловить и переезд колонки на другое место.
+ */
+const LAST_ACTIVE_COLUMN_INDEX = 6
+
 /** Аргументы последнего вызова fetchProxies. */
 function lastFetchArgs() {
   return vi.mocked(fetchProxies).mock.calls.at(-1)?.[0]
@@ -187,6 +197,23 @@ describe('загрузка списка', () => {
     const activeCard = screen.getByLabelText('Скопировать активные прокси в буфер обмена')
     expect(within(allCard).getByText('42')).toBeInTheDocument()
     expect(within(activeCard).getByText('30')).toBeInTheDocument()
+  })
+
+  it('колонка «Активна» стоит после «Обновлён» и показывает дату последней активности', async () => {
+    await renderLoadedPage()
+
+    const headers = screen.getAllByRole('columnheader')
+
+    expect(headers[LAST_ACTIVE_COLUMN_INDEX - 1]).toHaveTextContent('Обновлён')
+    expect(headers[LAST_ACTIVE_COLUMN_INDEX]).toHaveTextContent('Активна')
+
+    const [firstRow, secondRow] = screen.getAllByRole('row').slice(1)
+
+    expect(within(firstRow).getAllByRole('cell')[LAST_ACTIVE_COLUMN_INDEX]).toHaveTextContent(
+      formatDate(proxyOne.last_active_at),
+    )
+    // Вторая прокси активной ни разу не была — вместо даты прочерк.
+    expect(within(secondRow).getAllByRole('cell')[LAST_ACTIVE_COLUMN_INDEX]).toHaveTextContent('—')
   })
 
   it('под именем прокси показывает источник, из которого она получена', async () => {
@@ -655,6 +682,33 @@ describe('сортировка', () => {
     await waitFor(() => expect(lastFetchArgs()).toMatchObject({ orderBy: 'created_at_desc' }))
   })
 
+  it('клик по «Активна» сортирует по последней активности и переворачивает направление', async () => {
+    const user = await renderLoadedPage()
+
+    await user.click(screen.getByRole('button', { name: /Активна/u }))
+
+    await waitFor(() => expect(lastFetchArgs()).toMatchObject({ orderBy: 'last_active_at', offset: 0 }))
+
+    await user.click(screen.getByRole('button', { name: /Активна/u }))
+
+    await waitFor(() => expect(lastFetchArgs()).toMatchObject({ orderBy: 'last_active_at_desc' }))
+  })
+
+  it('колонка «Активна» помечается aria-sort, когда сортируем по ней', async () => {
+    const user = await renderLoadedPage()
+
+    expect(screen.getAllByRole('columnheader')[LAST_ACTIVE_COLUMN_INDEX]).toHaveAttribute('aria-sort', 'none')
+
+    await user.click(screen.getByRole('button', { name: /Активна/u }))
+
+    await waitFor(() =>
+      expect(screen.getAllByRole('columnheader')[LAST_ACTIVE_COLUMN_INDEX]).toHaveAttribute(
+        'aria-sort',
+        'ascending',
+      ),
+    )
+  })
+
   it('смена сортировки сбрасывает страницу на первую', async () => {
     const user = await renderLoadedPage()
 
@@ -808,6 +862,14 @@ describe('состояние в адресной строке', () => {
     expect(window.location.search).toBe(
       '?limit=25&offset=50&status=disabled&order_by=created_at_desc',
     )
+  })
+
+  it('сортировка по последней активности переживает открытие по прямой ссылке', async () => {
+    await renderAt('/proxies?order_by=last_active_at_desc')
+
+    expect(lastFetchArgs()).toMatchObject({ orderBy: 'last_active_at_desc' })
+    expect(screen.getAllByRole('columnheader')[LAST_ACTIVE_COLUMN_INDEX]).toHaveAttribute('aria-sort', 'descending')
+    expect(window.location.search).toBe('?order_by=last_active_at_desc')
   })
 
   it('прямая ссылка подсвечивает нужную страницу пагинации', async () => {

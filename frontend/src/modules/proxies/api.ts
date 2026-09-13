@@ -35,7 +35,13 @@ export type ProxyStatus = 'enabled' | 'disabled'
  * Значения query-параметра `order_by` у GET /api/proxies (бекендовый `ProxyOrderByEnum`).
  * Без суффикса `_desc` — по возрастанию.
  */
-export type ProxyOrderBy = 'latency' | 'latency_desc' | 'created_at' | 'created_at_desc'
+export type ProxyOrderBy =
+  | 'latency'
+  | 'latency_desc'
+  | 'created_at'
+  | 'created_at_desc'
+  | 'last_active_at'
+  | 'last_active_at_desc'
 
 export interface TelegramProxy {
   id: number
@@ -46,6 +52,8 @@ export interface TelegramProxy {
   source_name: string | null
   created_at: string
   updated_at: string | null
+  /** Когда прокси в последний раз ответила на пинг. `null` — активной ещё ни разу не была. */
+  last_active_at: string | null
   status: ProxyStatus
   latency: number | null
 }

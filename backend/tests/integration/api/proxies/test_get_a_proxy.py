@@ -1,5 +1,5 @@
 from collections.abc import Awaitable, Callable
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from httpx import URL, AsyncClient
 from polyfactory.factories.sqlalchemy_factory import SQLAlchemyFactory
@@ -29,9 +29,14 @@ async def test_get_a_proxy(
     source_id, source_name = source.id, source.name
 
     updated_at = datetime.now(tz=MOSCOW_TZ).replace(tzinfo=None)
+    last_active_at = updated_at - timedelta(hours=5)
 
     proxy = await proxy_factory.create_async(
-        source_id=source_id, latency=42, status=ProxyStatusEnum.enabled, updated_at=updated_at
+        source_id=source_id,
+        latency=42,
+        status=ProxyStatusEnum.enabled,
+        updated_at=updated_at,
+        last_active_at=last_active_at,
     )
     # Соседняя прокси нужна, чтобы эндпоинт отдавал именно запрошенную запись, а не первую попавшуюся.
     await proxy_factory.create_async(source_id=source_id, latency=1, status=ProxyStatusEnum.disabled)
@@ -49,6 +54,7 @@ async def test_get_a_proxy(
         "source_name": source_name,
         "created_at": proxy.created_at.isoformat(),
         "updated_at": updated_at.isoformat(),
+        "last_active_at": last_active_at.isoformat(),
         "status": ProxyStatusEnum.enabled,
         "latency": 42,
     }
@@ -65,7 +71,7 @@ async def test_get_a_proxy_without_source(
     proxy_factory = await sqlalchemy_model_factory_maker(factory_cls=TelegramProxyFactory, session=db_rollback_session)
 
     proxy = await proxy_factory.create_async(
-        source_id=None, latency=None, status=ProxyStatusEnum.disabled, updated_at=None
+        source_id=None, latency=None, status=ProxyStatusEnum.disabled, updated_at=None, last_active_at=None
     )
 
     response = await rest_client.get(f"/api/proxies/{proxy.id}")
@@ -81,6 +87,7 @@ async def test_get_a_proxy_without_source(
         "source_name": None,
         "created_at": proxy.created_at.isoformat(),
         "updated_at": None,
+        "last_active_at": None,
         "status": ProxyStatusEnum.disabled,
         "latency": None,
     }

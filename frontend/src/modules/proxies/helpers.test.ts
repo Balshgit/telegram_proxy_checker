@@ -9,6 +9,7 @@ import {
   DEFAULT_SORT,
   emptyProxiesHint,
   filteredTotalFor,
+  fromOrderBy,
   keepExistingSourceIds,
   latencyTone,
   nextSortState,
@@ -16,6 +17,8 @@ import {
   proxyLabel,
   serializeProxiesQuery,
   sortGlyph,
+  SORT_FIELD_LABELS,
+  SORT_OPTIONS,
   sourceLabel,
   toggleSourceId,
   toOrderBy,
@@ -29,6 +32,7 @@ const base: TelegramProxy = {
   source_name: null,
   created_at: '2024-05-01T10:00:00Z',
   updated_at: null,
+  last_active_at: null,
   status: 'enabled',
   latency: null,
 }
@@ -39,6 +43,23 @@ describe('сортировка', () => {
     expect(toOrderBy({ field: 'latency', direction: 'desc' })).toBe('latency_desc')
     expect(toOrderBy({ field: 'created_at', direction: 'asc' })).toBe('created_at')
     expect(toOrderBy({ field: 'created_at', direction: 'desc' })).toBe('created_at_desc')
+    expect(toOrderBy({ field: 'last_active_at', direction: 'asc' })).toBe('last_active_at')
+    expect(toOrderBy({ field: 'last_active_at', direction: 'desc' })).toBe('last_active_at_desc')
+  })
+
+  it('order_by по последней активности разбирается обратно в состояние сортировки', () => {
+    expect(fromOrderBy('last_active_at')).toEqual({ field: 'last_active_at', direction: 'asc' })
+    expect(fromOrderBy('last_active_at_desc')).toEqual({ field: 'last_active_at', direction: 'desc' })
+  })
+
+  it('обе сортировки по последней активности предлагаются в выпадашке тулбара', () => {
+    // На узких экранах шапки таблицы нет, и выпадашка — единственный способ переключить колонку.
+    expect(SORT_OPTIONS.map((option) => option.value)).toContain('last_active_at')
+    expect(SORT_OPTIONS.map((option) => option.value)).toContain('last_active_at_desc')
+  })
+
+  it('у каждой сортируемой колонки есть подпись для заголовка таблицы', () => {
+    expect(SORT_FIELD_LABELS.last_active_at).toBe('последней активности')
   })
 
   it('по умолчанию сортируем по латенси по возрастанию — как и бекенд', () => {
