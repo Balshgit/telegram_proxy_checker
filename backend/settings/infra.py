@@ -17,6 +17,10 @@ class TaskiqSettings(BaseSettings):
     TASKIQ_SCHEDULER_LOOP_INTERVAL: IntervalSeconds = timedelta(minutes=5)
 
 
+class ProxySettings(BaseSettings):
+    PROXY_STALE_PERIOD: IntervalSeconds = timedelta(weeks=2)
+
+
 class LogLevelEnum(StrEnum):
     CRITICAL = "critical"
     ERROR = "error"

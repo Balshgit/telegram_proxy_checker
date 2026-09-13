@@ -18,6 +18,13 @@ FAST_PROXY = "fast"
 SLOW_PROXY = "slow"
 UNREACHABLE_PROXY = "unreachable"
 
+#: Ключи прокси для тестов сортировки по `last_active_at`. Отдельный набор от FAST/SLOW/UNREACHABLE:
+#: у трёх записей всего шесть перестановок, и втиснуть в них ещё две сортировки, не столкнувшись
+#: с уже занятыми порядками latency и created_at, нельзя.
+RECENTLY_ACTIVE_PROXY = "recently_active"
+LONG_AGO_ACTIVE_PROXY = "long_ago_active"
+NEVER_ACTIVE_PROXY = "never_active"
+
 #: Общий кусок имени всех трёх прокси в тесте фильтров: по нему проверяется, что фильтр ищет
 #: подстроку, а не полное совпадение, и что под него попадает вся выборка.
 PROXY_NAME_SUFFIX = "Telegram"
@@ -80,6 +87,7 @@ async def test_get_all_proxies(
             "source_name": source_name,
             "created_at": proxy_1.created_at.isoformat(),
             "updated_at": None,
+            "last_active_at": None,
             "status": proxy_1.status,
             "latency": proxy_1.latency,
         },
@@ -90,6 +98,7 @@ async def test_get_all_proxies(
             "source_name": source_name,
             "created_at": proxy_2.created_at.isoformat(),
             "updated_at": None,
+            "last_active_at": None,
             "status": proxy_2.status,
             "latency": proxy_2.latency,
         },
@@ -100,6 +109,7 @@ async def test_get_all_proxies(
             "source_name": source_name,
             "created_at": proxy_3.created_at.isoformat(),
             "updated_at": None,
+            "last_active_at": None,
             "status": proxy_3.status,
             "latency": proxy_3.latency,
         },
@@ -277,9 +287,13 @@ async def test_get_all_proxies_with_best_latency_on_top(
     source = await proxies_source_factory.create_async()
     source_id, source_name = source.id, source.name
 
+    now = datetime.now(tz=MOSCOW_TZ).replace(tzinfo=None)
+
     proxy_1 = await proxy_factory.create_async(latency=543, updated_at=None, source_id=source_id)
+    # Единственная прокси с проставленными `updated_at` и `last_active_at`: на ней и проверяется,
+    # что обе даты доезжают до ответа, а не подменяются на None вместе с остальными.
     proxy_2 = await proxy_factory.create_async(
-        latency=42, updated_at=datetime.now(tz=MOSCOW_TZ).replace(tzinfo=None), source_id=source_id
+        latency=42, updated_at=now, last_active_at=now - timedelta(hours=3), source_id=source_id
     )
     proxy_3 = await proxy_factory.create_async(latency=None, source_id=source_id)
 
@@ -302,6 +316,7 @@ async def test_get_all_proxies_with_best_latency_on_top(
             "source_name": source_name,
             "created_at": proxy_2.created_at.isoformat(),
             "updated_at": proxy_2.updated_at.isoformat(),
+            "last_active_at": proxy_2.last_active_at.isoformat(),
             "status": proxy_2.status,
             "latency": proxy_2.latency,
         },
@@ -312,6 +327,7 @@ async def test_get_all_proxies_with_best_latency_on_top(
             "source_name": source_name,
             "created_at": proxy_1.created_at.isoformat(),
             "updated_at": None,
+            "last_active_at": None,
             "status": proxy_1.status,
             "latency": proxy_1.latency,
         },
@@ -322,6 +338,7 @@ async def test_get_all_proxies_with_best_latency_on_top(
             "source_name": source_name,
             "created_at": proxy_3.created_at.isoformat(),
             "updated_at": None,
+            "last_active_at": None,
             "status": proxy_3.status,
             "latency": None,
         },
@@ -424,6 +441,119 @@ async def test_get_all_proxies_ordered(
 
     assert len(data) == 3
     assert_that(data).extracting("id").is_equal_to(expected_ids)
+
+
+@pytest.mark.parametrize(
+    "order_by, expected_proxies_order",
+    [
+        pytest.param(
+            ProxyOrderByEnum.last_active_at,
+            [NEVER_ACTIVE_PROXY, LONG_AGO_ACTIVE_PROXY, RECENTLY_ACTIVE_PROXY],
+            id="last_active_at asc",
+        ),
+        pytest.param(
+            ProxyOrderByEnum.last_active_at_desc,
+            [RECENTLY_ACTIVE_PROXY, LONG_AGO_ACTIVE_PROXY, NEVER_ACTIVE_PROXY],
+            id="last_active_at desc",
+        ),
+    ],
+)
+async def test_get_all_proxies_ordered_by_last_active_at(
+    rest_client: AsyncClient,
+    db_rollback_session: AsyncSession,
+    sqlalchemy_model_factory_maker: Callable[
+        [type[SQLAlchemyFactory], AsyncSession], Awaitable[type[SQLAlchemyFactory]]
+    ],
+    order_by: ProxyOrderByEnum,
+    expected_proxies_order: list[str],
+) -> None:
+    """
+    Прокси без `last_active_at` считается предельно несвежей и едет туда же, куда самые старые даты.
+
+    Позиция NULL задана явно и обратна дефолту постгреса на обеих сторонах: от старых к новым
+    такая прокси идёт первой, от новых к старым — последней.
+    """
+    proxy_factory = await sqlalchemy_model_factory_maker(factory_cls=TelegramProxyFactory, session=db_rollback_session)
+
+    now = datetime.now(tz=MOSCOW_TZ).replace(tzinfo=None)
+
+    proxies = {
+        RECENTLY_ACTIVE_PROXY: await proxy_factory.create_async(last_active_at=now - timedelta(hours=1)),
+        NEVER_ACTIVE_PROXY: await proxy_factory.create_async(last_active_at=None),
+        LONG_AGO_ACTIVE_PROXY: await proxy_factory.create_async(last_active_at=now - timedelta(days=30)),
+    }
+    expected_ids = [proxies[proxy_key].id for proxy_key in expected_proxies_order]
+
+    response = await rest_client.get("/api/proxies", params={"order_by": order_by})
+
+    assert response.status_code == status.HTTP_200_OK, response.text
+
+    data = response.json()["payload"]["data"]
+
+    assert len(data) == 3
+    assert_that(data).extracting("id").is_equal_to(expected_ids)
+
+
+async def test_get_all_proxies_ordered_by_last_active_at_without_active_proxies(
+    rest_client: AsyncClient,
+    db_rollback_session: AsyncSession,
+    sqlalchemy_model_factory_maker: Callable[
+        [type[SQLAlchemyFactory], AsyncSession], Awaitable[type[SQLAlchemyFactory]]
+    ],
+) -> None:
+    """Когда активной не была ни одна прокси, сортировка вырождается во вторичную — по id."""
+    proxy_factory = await sqlalchemy_model_factory_maker(factory_cls=TelegramProxyFactory, session=db_rollback_session)
+
+    proxies = await proxy_factory.create_batch_async(size=3, last_active_at=None)
+    expected_ids = sorted(proxy.id for proxy in proxies)
+
+    response = await rest_client.get("/api/proxies", params={"order_by": ProxyOrderByEnum.last_active_at_desc})
+
+    assert response.status_code == status.HTTP_200_OK, response.text
+
+    data = response.json()["payload"]["data"]
+
+    assert_that(data).extracting("id").is_equal_to(expected_ids)
+    assert all(proxy["last_active_at"] is None for proxy in data)
+
+
+async def test_get_all_proxies_ordering_by_last_active_at_is_kept_on_the_next_page(
+    rest_client: AsyncClient,
+    db_rollback_session: AsyncSession,
+    sqlalchemy_model_factory_maker: Callable[
+        [type[SQLAlchemyFactory], AsyncSession], Awaitable[type[SQLAlchemyFactory]]
+    ],
+) -> None:
+    """Новая сортировка должна доезжать до ссылки на следующую страницу так же, как остальные."""
+    proxy_factory = await sqlalchemy_model_factory_maker(factory_cls=TelegramProxyFactory, session=db_rollback_session)
+
+    now = datetime.now(tz=MOSCOW_TZ).replace(tzinfo=None)
+
+    freshest = await proxy_factory.create_async(last_active_at=now)
+    middle = await proxy_factory.create_async(last_active_at=now - timedelta(days=1))
+    never_active = await proxy_factory.create_async(last_active_at=None)
+    expected_ids = [freshest.id, middle.id, never_active.id]
+
+    response = await rest_client.get(
+        "/api/proxies", params={"limit": 2, "order_by": ProxyOrderByEnum.last_active_at_desc}
+    )
+
+    assert response.status_code == status.HTTP_200_OK, response.text
+
+    data = response.json()["payload"]["data"]
+    next_page = response.json()["payload"]["pagination"]["next_page"]
+
+    assert_that(data).extracting("id").is_equal_to(expected_ids[:2])
+    assert next_page is not None
+    assert f"order_by={ProxyOrderByEnum.last_active_at_desc.value}" in next_page
+
+    response = await rest_client.get(next_page)
+
+    assert response.status_code == status.HTTP_200_OK, response.text
+
+    data = response.json()["payload"]["data"]
+
+    assert_that(data).extracting("id").is_equal_to(expected_ids[2:])
 
 
 async def test_get_all_proxies_ordering_is_kept_on_the_next_page(

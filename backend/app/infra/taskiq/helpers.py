@@ -8,6 +8,7 @@ from taskiq import AsyncBroker, InMemoryBroker, TaskiqResult
 from taskiq.exceptions import UnknownTaskError
 
 from app.core.proxies.tasks import (
+    cron_delete_stale_proxies_task,
     cron_update_proxies_in_database_task,
     save_proxies_to_database_task,
     update_proxies_in_database_task,
@@ -19,7 +20,7 @@ class TaskPeriodEnum(StrEnum):
     every_two_minutes = "*/2 * * * *"
     every_five_minutes = "*/5 * * * *"
     every_hour = "0 */1 * * *"
-    every_day = "0 */24 * * *"
+    every_day = "0 3 * * *"
 
 
 @dataclass(frozen=True, kw_only=True, slots=True)
@@ -37,6 +38,11 @@ TASKS: list[TaskConfig] = [
     TaskConfig(
         func=cron_update_proxies_in_database_task,
         interval=timedelta(hours=4),
+        labels={"timeout": 10, "retry_on_error": False, "max_retries": 0},
+    ),
+    TaskConfig(
+        func=cron_delete_stale_proxies_task,
+        cron=TaskPeriodEnum.every_day,
         labels={"timeout": 10, "retry_on_error": False, "max_retries": 0},
     ),
 ]

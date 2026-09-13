@@ -8,6 +8,7 @@ from taskiq.exceptions import UnknownTaskError
 from taskiq.schedule_sources import LabelScheduleSource
 
 from app.core.proxies.tasks import (
+    cron_delete_stale_proxies_task,
     cron_update_proxies_in_database_task,
     save_proxies_to_database_task,
     update_proxies_in_database_task,
@@ -20,7 +21,7 @@ from app.infra.taskiq.helpers import (
     get_task_name,
     register_tasks,
 )
-from tests.unit.infra.helpers import CRON_TASK_INTERVAL
+from tests.unit.infra.helpers import CLEANUP_TASK_CRON, CRON_TASK_INTERVAL
 
 UNSCHEDULED_TASKS: list[Callable[..., Any]] = [save_proxies_to_database_task, update_proxies_in_database_task]
 
@@ -40,6 +41,20 @@ def test_cron_task_is_scheduled_every_four_hours(broker: InMemoryBroker) -> None
     task = broker.find_task(get_task_name(cron_update_proxies_in_database_task))
 
     assert task.labels["schedule"] == [{"kwargs": {}, "interval": CRON_TASK_INTERVAL}]
+
+
+def test_cleanup_task_is_registered_in_broker(broker: InMemoryBroker) -> None:
+    assert broker.find_task(get_task_name(cron_delete_stale_proxies_task)) is not None
+
+
+def test_cleanup_task_is_scheduled_daily_at_three_am(broker: InMemoryBroker) -> None:
+    task = broker.find_task(get_task_name(cron_delete_stale_proxies_task))
+
+    assert task.labels["schedule"] == [{"kwargs": {}, "cron": CLEANUP_TASK_CRON}]
+
+
+def test_every_day_period_is_three_am() -> None:
+    assert TaskPeriodEnum.every_day == CLEANUP_TASK_CRON
 
 
 @pytest.mark.parametrize("task_func", UNSCHEDULED_TASKS)
@@ -86,6 +101,21 @@ async def test_label_schedule_source_picks_up_cron_task(broker: InMemoryBroker) 
     assert len(cron_schedules) == 1
     assert cron_schedules[0].interval == CRON_TASK_INTERVAL
     assert cron_schedules[0].cron is None
+
+
+async def test_label_schedule_source_picks_up_cleanup_task(broker: InMemoryBroker) -> None:
+    source = LabelScheduleSource(broker=broker)
+
+    await source.startup()
+    schedules = await source.get_schedules()
+
+    cleanup_schedules = [
+        schedule for schedule in schedules if schedule.task_name == get_task_name(cron_delete_stale_proxies_task)
+    ]
+
+    assert len(cleanup_schedules) == 1
+    assert cleanup_schedules[0].cron == CLEANUP_TASK_CRON
+    assert cleanup_schedules[0].interval is None
 
 
 async def test_label_schedule_source_ignores_tasks_without_schedule(broker: InMemoryBroker) -> None:

@@ -171,6 +171,26 @@ async def delete_all_proxies(
 
 
 @router.delete(
+    "/proxies/stale",
+    name="proxies:delete_stale_proxies",
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="Удаление протухших проксей из базы",
+    description=(
+        "Удаляет прокси, которые дольше настроенного срока (`PROXY_STALE_PERIOD`) не выходили на связь: "
+        "у которых `last_active_at` старше срока, а если активной прокси ещё не была — `created_at`"
+    ),
+    responses=build_responses(status_code=status.HTTP_202_ACCEPTED, response_model=None),
+)
+@inject
+async def delete_stale_proxies(
+    proxy_service: Annotated[ProxyService, Depends(AsyncProvide[Container.services.proxy_service])],
+) -> None:
+
+    await proxy_service.delete_stale_proxies()
+
+
+# Объявлен после `/proxies/stale`: иначе `{proxy_id}` перехватил бы `stale` и отдал 422 на нечисловой id.
+@router.delete(
     "/proxies/{proxy_id}",
     name="proxies:delete_a_proxy",
     status_code=status.HTTP_204_NO_CONTENT,

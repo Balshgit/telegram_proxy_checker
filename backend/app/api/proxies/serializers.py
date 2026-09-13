@@ -25,6 +25,7 @@ class TelegramProxySerializer(BaseModel):
     source_name: Annotated[str | None, Field(..., description="Название источника прокси")]
     created_at: Annotated[datetime, Field(..., description="Дата создания урла прокси")]
     updated_at: Annotated[datetime | None, Field(..., description="Дата обновления урла прокси")]
+    last_active_at: Annotated[datetime | None, Field(..., description="Когда прокси в последний раз отвечала на пинг")]
     status: Annotated[ProxyStatusEnum, Field(..., description="Статус прокси")]
     latency: Annotated[int | None, Field(..., description="Пинг до прокси в мс")]
 

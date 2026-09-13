@@ -11,7 +11,7 @@ import type { ProxyOrderBy, ProxyStatus, TelegramProxy } from './api'
 export const PAGE_SIZE_OPTIONS = [10, 25, 50, 100]
 
 /** Колонки таблицы, по которым бекенд умеет сортировать (GET /api/proxies, `order_by`). */
-export type SortField = 'latency' | 'created_at'
+export type SortField = 'latency' | 'created_at' | 'last_active_at'
 export type SortDirection = 'asc' | 'desc'
 
 export interface SortState {
@@ -57,6 +57,7 @@ export function ariaSortFor(current: SortState, field: SortField): 'ascending' |
 export const SORT_FIELD_LABELS: Record<SortField, string> = {
   latency: 'пингу',
   created_at: 'дате создания',
+  last_active_at: 'последней активности',
 }
 
 /** Разбирает `order_by` обратно в состояние сортировки (обратная операция к `toOrderBy`). */
@@ -77,6 +78,12 @@ export const SORT_OPTIONS: { value: ProxyOrderBy; label: string }[] = [
   { value: 'latency_desc', label: 'Пинг ↓' },
   { value: 'created_at', label: 'Создан ↑' },
   { value: 'created_at_desc', label: 'Создан ↓' },
+  /*
+   * Прокси, которая ни разу не выходила на связь, для бекенда предельно несвежая:
+   * по возрастанию она идёт первой, по убыванию — последней.
+   */
+  { value: 'last_active_at', label: 'Активна ↑' },
+  { value: 'last_active_at_desc', label: 'Активна ↓' },
 ]
 
 /** Сколько соседних страниц показываем слева и справа от текущей. */

@@ -1,8 +1,21 @@
 from dataclasses import dataclass
+from datetime import timedelta
 from typing import Any
 
 from sqlakeyset import Page
-from sqlalchemy import ColumnElement, Integer, case, cast, delete, func, select, update, values
+from sqlalchemy import (
+    ColumnElement,
+    Integer,
+    case,
+    cast,
+    delete,
+    func,
+    nulls_first,
+    nulls_last,
+    select,
+    update,
+    values,
+)
 from sqlalchemy.exc import NoResultFound
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload, load_only
@@ -63,6 +76,8 @@ class ProxyRepository(BaseDBRepository):
             ProxyOrderByEnum.created_at_desc: TelegramProxy.created_at.desc(),
             ProxyOrderByEnum.latency: TelegramProxy.latency.asc(),
             ProxyOrderByEnum.latency_desc: TelegramProxy.latency.desc(),
+            ProxyOrderByEnum.last_active_at: nulls_first(TelegramProxy.last_active_at.asc()),
+            ProxyOrderByEnum.last_active_at_desc: nulls_last(TelegramProxy.last_active_at.desc()),
         }
 
         query = (
@@ -129,6 +144,25 @@ class ProxyRepository(BaseDBRepository):
 
         async with self.session_wrap(session) as wrapped_session:
             await wrapped_session.execute(query)
+
+    async def delete_stale_proxies(self, stale_period: timedelta, session: AsyncSession | None = None) -> list[int]:
+        """
+        Протухшей считается прокси, у которой `last_active_at` старше границы, а если активной она ещё
+        не была (`last_active_at IS NULL`) — то прокси, у которой старше границы `created_at`.
+        """
+        stale_border = func.now() - stale_period
+        last_seen_at = func.coalesce(TelegramProxy.last_active_at, TelegramProxy.created_at)
+
+        query = (
+            delete(TelegramProxy)
+            .where(last_seen_at < stale_border)
+            .returning(TelegramProxy.source_id)
+            .execution_options(synchronize_session=False)
+        )
+
+        async with self.session_wrap(session) as wrapped_session:
+            result = await wrapped_session.execute(query)
+            return [source_id for source_id in result.scalars().all() if source_id is not None]
 
     async def update_proxy(
         self,

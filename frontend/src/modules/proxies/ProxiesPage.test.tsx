@@ -8,6 +8,7 @@ import {
   createProxies,
   deleteAllProxies,
   deleteProxy,
+  deleteStaleProxies,
   fetchProxies,
   fetchProxy,
   fetchRawProxies,
@@ -18,6 +19,7 @@ import type { ProxiesPageResult, TelegramProxy } from './api'
 import { fetchProxiesSources } from '../proxies-sources/api'
 import type { ProxySource } from '../proxies-sources/api'
 import { NAME_FILTER, SHARE_PAGE, UNKNOWN_SOURCE_LABEL } from './helpers'
+import { formatDate } from '../../shared/ui/format'
 
 /**
  * Сетевой слой мокаем целиком, но настоящий ApiRequestError оставляем:
@@ -33,6 +35,7 @@ vi.mock('./api', async (importOriginal) => {
     createProxies: vi.fn(),
     updateAllProxies: vi.fn(),
     deleteAllProxies: vi.fn(),
+    deleteStaleProxies: vi.fn(),
     deleteProxy: vi.fn(),
     updateProxy: vi.fn(),
   }
@@ -77,6 +80,7 @@ const proxyOne: TelegramProxy = {
   source_name: 'MTProto list',
   created_at: '2024-05-01T10:00:00Z',
   updated_at: null,
+  last_active_at: '2024-05-04T09:30:00Z',
   status: 'enabled',
   latency: 120,
 }
@@ -88,6 +92,8 @@ const proxyTwo: TelegramProxy = {
   source_name: null,
   created_at: '2024-05-02T10:00:00Z',
   updated_at: '2024-05-03T10:00:00Z',
+  // Никогда не была активной — в таблице на её месте прочерк.
+  last_active_at: null,
   status: 'enabled',
   latency: null,
 }
@@ -139,6 +145,7 @@ beforeEach(() => {
   vi.mocked(createProxies).mockResolvedValue('created')
   vi.mocked(updateAllProxies).mockResolvedValue(undefined)
   vi.mocked(deleteAllProxies).mockResolvedValue(undefined)
+  vi.mocked(deleteStaleProxies).mockResolvedValue(undefined)
   vi.mocked(deleteProxy).mockResolvedValue(undefined)
   vi.mocked(updateProxy).mockResolvedValue(undefined)
   vi.mocked(fetchProxiesSources).mockResolvedValue([githubSource, backupSource])
@@ -152,18 +159,31 @@ async function renderLoadedPage() {
   return user
 }
 
+/**
+ * Позиция колонки «Активна» в таблице: ID, Прокси, Статус, Пинг, Создан, Обновлён, Активна, Действия.
+ * Индекс, а не текстовый поиск: тест должен ловить и переезд колонки на другое место.
+ */
+const LAST_ACTIVE_COLUMN_INDEX = 6
+
 /** Аргументы последнего вызова fetchProxies. */
 function lastFetchArgs() {
   return vi.mocked(fetchProxies).mock.calls.at(-1)?.[0]
 }
 
-/**
- * «Удалить все прокси» спрятано в меню «⋯»: сначала открываем меню,
- * потом возвращаем пункт из него.
- */
+/** Массовые удаления спрятаны в меню «⋯»: открываем его и отдаём область поиска по пунктам. */
 async function openMoreMenu(user: ReturnType<typeof setupUser>) {
   await user.click(screen.getByLabelText('Ещё действия'))
-  return within(screen.getByRole('menu')).getByRole('menuitem', { name: /Удалить все прокси/u })
+  return within(screen.getByRole('menu'))
+}
+
+/** Пункт «Удалить все прокси» из меню «⋯». */
+async function openDeleteAllItem(user: ReturnType<typeof setupUser>) {
+  return (await openMoreMenu(user)).getByRole('menuitem', { name: /Удалить все прокси/u })
+}
+
+/** Пункт «Очистить старые прокси» из меню «⋯». */
+async function openCleanupItem(user: ReturnType<typeof setupUser>) {
+  return (await openMoreMenu(user)).getByRole('menuitem', { name: /Очистить старые прокси/u })
 }
 
 describe('загрузка списка', () => {
@@ -177,6 +197,23 @@ describe('загрузка списка', () => {
     const activeCard = screen.getByLabelText('Скопировать активные прокси в буфер обмена')
     expect(within(allCard).getByText('42')).toBeInTheDocument()
     expect(within(activeCard).getByText('30')).toBeInTheDocument()
+  })
+
+  it('колонка «Активна» стоит после «Обновлён» и показывает дату последней активности', async () => {
+    await renderLoadedPage()
+
+    const headers = screen.getAllByRole('columnheader')
+
+    expect(headers[LAST_ACTIVE_COLUMN_INDEX - 1]).toHaveTextContent('Обновлён')
+    expect(headers[LAST_ACTIVE_COLUMN_INDEX]).toHaveTextContent('Активна')
+
+    const [firstRow, secondRow] = screen.getAllByRole('row').slice(1)
+
+    expect(within(firstRow).getAllByRole('cell')[LAST_ACTIVE_COLUMN_INDEX]).toHaveTextContent(
+      formatDate(proxyOne.last_active_at),
+    )
+    // Вторая прокси активной ни разу не была — вместо даты прочерк.
+    expect(within(secondRow).getAllByRole('cell')[LAST_ACTIVE_COLUMN_INDEX]).toHaveTextContent('—')
   })
 
   it('под именем прокси показывает источник, из которого она получена', async () => {
@@ -381,6 +418,7 @@ describe('массовые действия', () => {
 
     expect(screen.queryByRole('menu')).not.toBeInTheDocument()
     expect(screen.queryByText('Удалить все прокси')).not.toBeInTheDocument()
+    expect(screen.queryByText('Очистить старые прокси')).not.toBeInTheDocument()
 
     await openMoreMenu(user)
 
@@ -390,7 +428,7 @@ describe('массовые действия', () => {
   it('удаление всех прокси требует подтверждения', async () => {
     const user = await renderLoadedPage()
 
-    await user.click(await openMoreMenu(user))
+    await user.click(await openDeleteAllItem(user))
     expect(screen.getByRole('dialog')).toBeInTheDocument()
     expect(deleteAllProxies).not.toHaveBeenCalled()
 
@@ -403,11 +441,59 @@ describe('массовые действия', () => {
   it('отмена в модалке ничего не удаляет', async () => {
     const user = await renderLoadedPage()
 
-    await user.click(await openMoreMenu(user))
+    await user.click(await openDeleteAllItem(user))
     await user.click(screen.getByRole('button', { name: 'Отмена' }))
 
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
     expect(deleteAllProxies).not.toHaveBeenCalled()
+  })
+
+  it('«Очистить старые прокси» стоит в меню выше «Удалить все прокси»', async () => {
+    const user = await renderLoadedPage()
+
+    const items = (await openMoreMenu(user)).getAllByRole('menuitem')
+
+    expect(items).toHaveLength(2)
+    expect(items[0]).toHaveAccessibleName(/Очистить старые прокси/u)
+    expect(items[1]).toHaveAccessibleName(/Удалить все прокси/u)
+  })
+
+  it('очистка старых прокси требует подтверждения и дёргает DELETE /api/proxies/stale', async () => {
+    const user = await renderLoadedPage()
+    const callsBefore = vi.mocked(fetchProxies).mock.calls.length
+
+    await user.click(await openCleanupItem(user))
+    expect(screen.getByRole('dialog')).toBeInTheDocument()
+    expect(deleteStaleProxies).not.toHaveBeenCalled()
+
+    await user.click(screen.getByRole('button', { name: 'Очистить' }))
+
+    await waitFor(() => expect(deleteStaleProxies).toHaveBeenCalledTimes(1))
+    expect(await screen.findByText('Старые прокси очищены')).toBeInTheDocument()
+    // Список перечитывается: сколько именно удалилось, бекенд не сообщает.
+    await waitFor(() => expect(vi.mocked(fetchProxies).mock.calls.length).toBeGreaterThan(callsBefore))
+    expect(deleteAllProxies).not.toHaveBeenCalled()
+  })
+
+  it('отмена в модалке очистки ничего не чистит', async () => {
+    const user = await renderLoadedPage()
+
+    await user.click(await openCleanupItem(user))
+    await user.click(screen.getByRole('button', { name: 'Отмена' }))
+
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(deleteStaleProxies).not.toHaveBeenCalled()
+  })
+
+  it('ошибка очистки показывает текст бекенда и не трогает список', async () => {
+    vi.mocked(deleteStaleProxies).mockRejectedValue(new ApiRequestError('Очистка недоступна', 500))
+    const user = await renderLoadedPage()
+
+    await user.click(await openCleanupItem(user))
+    await user.click(screen.getByRole('button', { name: 'Очистить' }))
+
+    expect(await screen.findByText('Очистка недоступна')).toBeInTheDocument()
+    expect(screen.getByText('Первая прокси')).toBeInTheDocument()
   })
 
   it('«Обновить прокси» дёргает POST /api/proxies/status и перезагружает список', async () => {
@@ -596,6 +682,33 @@ describe('сортировка', () => {
     await waitFor(() => expect(lastFetchArgs()).toMatchObject({ orderBy: 'created_at_desc' }))
   })
 
+  it('клик по «Активна» сортирует по последней активности и переворачивает направление', async () => {
+    const user = await renderLoadedPage()
+
+    await user.click(screen.getByRole('button', { name: /Активна/u }))
+
+    await waitFor(() => expect(lastFetchArgs()).toMatchObject({ orderBy: 'last_active_at', offset: 0 }))
+
+    await user.click(screen.getByRole('button', { name: /Активна/u }))
+
+    await waitFor(() => expect(lastFetchArgs()).toMatchObject({ orderBy: 'last_active_at_desc' }))
+  })
+
+  it('колонка «Активна» помечается aria-sort, когда сортируем по ней', async () => {
+    const user = await renderLoadedPage()
+
+    expect(screen.getAllByRole('columnheader')[LAST_ACTIVE_COLUMN_INDEX]).toHaveAttribute('aria-sort', 'none')
+
+    await user.click(screen.getByRole('button', { name: /Активна/u }))
+
+    await waitFor(() =>
+      expect(screen.getAllByRole('columnheader')[LAST_ACTIVE_COLUMN_INDEX]).toHaveAttribute(
+        'aria-sort',
+        'ascending',
+      ),
+    )
+  })
+
   it('смена сортировки сбрасывает страницу на первую', async () => {
     const user = await renderLoadedPage()
 
@@ -749,6 +862,14 @@ describe('состояние в адресной строке', () => {
     expect(window.location.search).toBe(
       '?limit=25&offset=50&status=disabled&order_by=created_at_desc',
     )
+  })
+
+  it('сортировка по последней активности переживает открытие по прямой ссылке', async () => {
+    await renderAt('/proxies?order_by=last_active_at_desc')
+
+    expect(lastFetchArgs()).toMatchObject({ orderBy: 'last_active_at_desc' })
+    expect(screen.getAllByRole('columnheader')[LAST_ACTIVE_COLUMN_INDEX]).toHaveAttribute('aria-sort', 'descending')
+    expect(window.location.search).toBe('?order_by=last_active_at_desc')
   })
 
   it('прямая ссылка подсвечивает нужную страницу пагинации', async () => {
