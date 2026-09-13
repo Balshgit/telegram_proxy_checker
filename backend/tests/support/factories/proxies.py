@@ -46,6 +46,10 @@ class TelegramProxyFactory(SQLAlchemyFactory[TelegramProxy]):
         return None
 
     @classmethod
+    def last_active_at(cls) -> datetime | None:
+        return None
+
+    @classmethod
     async def create_default_source(cls) -> TelegramProxiesSource:
         """
         Создаёт настоящий источник в базе и отдаёт его.

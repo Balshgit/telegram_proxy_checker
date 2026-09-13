@@ -30,14 +30,18 @@ import {
   buildPageItems,
   COPY_SCOPE_EMPTY_TEXT,
   COPY_SCOPE_STATUS,
+  emptyProxiesHint,
   filteredTotalFor,
   fromOrderBy,
   keepExistingSourceIds,
   latencyTone,
+  NAME_FILTER,
+  NAME_FILTER_DEBOUNCE_MS,
   nextSortState,
   NOTHING_TO_ADD_TOAST,
   PAGE_SIZE_OPTIONS,
   parseProxiesQuery,
+  PROXY_NAME_FILTER_MAX_LENGTH,
   proxyLabel,
   serializeProxiesQuery,
   SHARE_PAGE,
@@ -78,15 +82,15 @@ function ProxiesPage({ nav }: ProxiesPageProps) {
   const [shareText, setShareText] = useState('')
 
   /*
-   * Страница, размер страницы, фильтр и сортировка хранятся не в useState,
-   * а в адресной строке: `/proxies?limit=10&offset=20&proxy_status=enabled&order_by=latency`.
+   * Страница, размер страницы, фильтры и сортировка хранятся не в useState,
+   * а в адресной строке: `/proxies?limit=10&offset=20&status=enabled&order_by=latency`.
    * Так состояние списка переживает перезагрузку, ходит по ссылке и правится
    * руками прямо в браузере. React-состояние тут было бы вторым источником
    * правды, поэтому его и нет — только чтение адреса и запись в адрес.
    */
   const search = useSearch()
   const query = useMemo(() => parseProxiesQuery(search), [search])
-  const { limit, offset, status: statusFilter, sort } = query
+  const { limit, offset, status: statusFilter, name: nameFilter, sort } = query
   /** Сортировка для запроса: строка, а не объект — её удобно класть в зависимости хуков. */
   const orderBy = toOrderBy(sort)
 
@@ -109,6 +113,37 @@ function ProxiesPage({ nav }: ProxiesPageProps) {
       setSearch(canonical, { replace: true })
     }
   }, [query, search])
+
+  /**
+   * Черновик поиска по имени.
+   *
+   * Поле ввода должно отзываться на каждое нажатие, а вот в адрес и на бекенд
+   * значение уезжает с паузой — иначе на каждую букву уходил бы запрос и запись
+   * в историю браузера. Источником правды остаётся адрес: черновик подтягивается
+   * к нему, когда адрес поменялся мимо поля («назад», чужая ссылка, сброс фильтров).
+   */
+  const [nameDraft, setNameDraft] = useState(nameFilter)
+
+  useEffect(() => {
+    // Сравниваем по обрезанному черновику: иначе пробел, который пользователь
+    // только что набрал между словами, стёрся бы сразу после отправки запроса.
+    setNameDraft((draft) => (draft.trim() === nameFilter ? draft : nameFilter))
+  }, [nameFilter])
+
+  useEffect(() => {
+    const nextName = nameDraft.trim()
+    if (nextName === nameFilter) {
+      return
+    }
+    // Смена фильтра сбрасывает на первую страницу: на прежнем offset выдача уже другая.
+    const timer = setTimeout(() => updateQuery({ name: nextName, offset: 0 }), NAME_FILTER_DEBOUNCE_MS)
+    return () => clearTimeout(timer)
+  }, [nameDraft, nameFilter, updateQuery])
+
+  const clearNameFilter = useCallback(() => {
+    setNameDraft('')
+    updateQuery({ name: '', offset: 0 })
+  }, [updateQuery])
 
   const [isLoading, setIsLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
@@ -144,6 +179,7 @@ function ProxiesPage({ nav }: ProxiesPageProps) {
           limit,
           offset,
           status: statusFilter === 'all' ? null : statusFilter,
+          name: nameFilter || null,
           orderBy,
           signal,
         })
@@ -168,7 +204,7 @@ function ProxiesPage({ nav }: ProxiesPageProps) {
         }
       }
     },
-    [limit, offset, orderBy, statusFilter],
+    [limit, nameFilter, offset, orderBy, statusFilter],
   )
 
   useEffect(() => {
@@ -506,17 +542,20 @@ function ProxiesPage({ nav }: ProxiesPageProps) {
   /**
    * Бекенд отдаёт счётчики по всей базе (total) и по активным (active),
    * без учёта фильтра — поэтому размер текущей выборки считаем сами.
+   * `null` — поиск по имени активен, и размер выборки из счётчиков не выводится.
    */
-  const filteredTotal = filteredTotalFor(statusFilter, total, activeCount)
+  const filteredTotal = filteredTotalFor(statusFilter, total, activeCount, nameFilter)
 
   const currentPage = Math.floor(offset / limit) + 1
   /**
    * Если счётчики разъехались с реальными данными (например, список изменился
    * в другой вкладке), доверяем next_page и не отрезаем существующую страницу.
+   * При неизвестном размере выборки next_page — единственный ориентир: известно
+   * только, есть ли ещё одна страница, но не сколько их всего.
    */
   const totalPages = Math.max(
     1,
-    Math.ceil(filteredTotal / limit),
+    filteredTotal === null ? currentPage : Math.ceil(filteredTotal / limit),
     hasNextPage ? currentPage + 1 : currentPage,
   )
   const pageItems = buildPageItems(currentPage, totalPages)
@@ -705,6 +744,35 @@ function ProxiesPage({ nav }: ProxiesPageProps) {
           </div>
 
           <div className="proxies-toolbar__filters">
+            <div className="name-filter">
+              <span className="name-filter__icon" aria-hidden="true">
+                🔍
+              </span>
+              <input
+                type="search"
+                className="name-filter__input"
+                value={nameDraft}
+                onChange={(event) => setNameDraft(event.target.value)}
+                maxLength={PROXY_NAME_FILTER_MAX_LENGTH}
+                placeholder={NAME_FILTER.placeholder}
+                aria-label={NAME_FILTER.title}
+                title={`${NAME_FILTER.title}: ${NAME_FILTER.hint}`}
+                disabled={isBusy}
+              />
+              {nameDraft && (
+                <button
+                  type="button"
+                  className="name-filter__clear"
+                  onClick={clearNameFilter}
+                  disabled={isBusy}
+                  title={NAME_FILTER.clear}
+                  aria-label={NAME_FILTER.clear}
+                >
+                  ×
+                </button>
+              )}
+            </div>
+
             <div className="segmented">
               {STATUS_FILTERS.map((filter) => (
                 <button
@@ -851,12 +919,13 @@ function ProxiesPage({ nav }: ProxiesPageProps) {
               <span className="state__icon">📭</span>
               <div>
                 <p className="state__title">Прокси не найдены</p>
-                <p className="state__text">
-                  {statusFilter === 'all'
-                    ? 'Нажмите «Добавить прокси», чтобы загрузить и проверить свежий список.'
-                    : 'Попробуйте изменить фильтр по статусу.'}
-                </p>
+                <p className="state__text">{emptyProxiesHint(query)}</p>
               </div>
+              {nameFilter && (
+                <button type="button" className="btn btn--ghost" onClick={clearNameFilter} disabled={isBusy}>
+                  {NAME_FILTER.clearAction}
+                </button>
+              )}
             </div>
           )}
 
@@ -1042,7 +1111,8 @@ function ProxiesPage({ nav }: ProxiesPageProps) {
           {!loadError && !isLoading && proxies.length > 0 && (
             <footer className="proxies-footer">
               <span className="muted">
-                Показано {rangeFrom}–{rangeTo} из {filteredTotal}
+                Показано {rangeFrom}–{rangeTo}
+                {filteredTotal !== null && ` из ${filteredTotal}`}
               </span>
               <nav className="pager" aria-label="Навигация по страницам">
                 <button
@@ -1107,7 +1177,7 @@ function ProxiesPage({ nav }: ProxiesPageProps) {
                   type="button"
                   className="btn btn--ghost pager__edge"
                   onClick={() => goToPage(totalPages)}
-                  disabled={currentPage === totalPages || isBusy}
+                  disabled={currentPage === totalPages || isBusy || filteredTotal === null}
                   title="Последняя страница"
                   aria-label="Последняя страница"
                 >

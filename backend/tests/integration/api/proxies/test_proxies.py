@@ -18,6 +18,14 @@ FAST_PROXY = "fast"
 SLOW_PROXY = "slow"
 UNREACHABLE_PROXY = "unreachable"
 
+#: Общий кусок имени всех трёх прокси в тесте фильтров: по нему проверяется, что фильтр ищет
+#: подстроку, а не полное совпадение, и что под него попадает вся выборка.
+PROXY_NAME_SUFFIX = "Telegram"
+ALPHA_PROXY_NAME = f"Alpha {PROXY_NAME_SUFFIX}"
+#: `Medium` в середине имени и с большой буквы — так один кейс проверяет сразу и подстроку, и регистр.
+BETA_PROXY_NAME = f"Beta Medium {PROXY_NAME_SUFFIX}"
+GAMMA_PROXY_NAME = f"Gamma {PROXY_NAME_SUFFIX}"
+
 
 async def test_get_all_proxies_empty_list(
     rest_client: AsyncClient,
@@ -152,19 +160,27 @@ async def test_get_all_proxies_paginated(
 
 
 @pytest.mark.parametrize(
-    "params, proxy_id",
+    "params, expected_proxy_ids",
     [
-        pytest.param({"proxy_status": ProxyStatusEnum.enabled}, 7, id="filter by enabled"),
+        pytest.param({"status": ProxyStatusEnum.enabled}, [7], id="filter by enabled"),
         pytest.param(
             {
                 "created_from": (datetime.now(tz=MOSCOW_TZ) - timedelta(days=2)).isoformat(),
                 "created_to": (datetime.now(tz=MOSCOW_TZ)).isoformat(),
             },
-            42,
+            [42],
             id="from created_from to created_to",
         ),
         pytest.param(
-            {"created_to": (datetime.now(tz=MOSCOW_TZ) - timedelta(days=3)).isoformat()}, 1, id="only created_to"
+            {"created_to": (datetime.now(tz=MOSCOW_TZ) - timedelta(days=3)).isoformat()}, [1], id="only created_to"
+        ),
+        pytest.param({"name": ALPHA_PROXY_NAME}, [7], id="name matches in full"),
+        pytest.param({"name": "medium"}, [42], id="name matches a substring in any case"),
+        pytest.param({"name": PROXY_NAME_SUFFIX}, [1, 7, 42], id="name matches every proxy"),
+        pytest.param(
+            {"name": PROXY_NAME_SUFFIX, "status": ProxyStatusEnum.enabled},
+            [7],
+            id="name is combined with the other filters",
         ),
     ],
 )
@@ -175,21 +191,34 @@ async def test_get_all_proxies_with_filters(
         [type[SQLAlchemyFactory], AsyncSession], Awaitable[type[SQLAlchemyFactory]]
     ],
     params: dict[str, Any],
-    proxy_id: int,
+    expected_proxy_ids: list[int],
 ) -> None:
+    """
+    Фильтры не влияют на `counters`: счётчики считаются по всей базе, а не по отфильтрованной выборке.
+
+    Имена заданы явно (фабрика отдаёт случайные), иначе фильтр по имени нечем проверить.
+    Все три прокси с одинаковым latency, поэтому выдача упорядочена по id — на это опираются
+    ожидания кейсов, где совпадений больше одного.
+    """
     proxy_factory = await sqlalchemy_model_factory_maker(factory_cls=TelegramProxyFactory, session=db_rollback_session)
 
     await proxy_factory.create_async(
-        id=7, status="enabled", created_at=datetime.now(tz=MOSCOW_TZ).replace(tzinfo=None), latency=42
+        id=7,
+        name=ALPHA_PROXY_NAME,
+        status="enabled",
+        created_at=datetime.now(tz=MOSCOW_TZ).replace(tzinfo=None),
+        latency=42,
     )
     await proxy_factory.create_async(
         id=42,
+        name=BETA_PROXY_NAME,
         created_at=datetime.now(tz=MOSCOW_TZ).replace(tzinfo=None) - timedelta(days=1),
         status="disabled",
         latency=42,
     )
     await proxy_factory.create_async(
         id=1,
+        name=GAMMA_PROXY_NAME,
         created_at=datetime.now(tz=MOSCOW_TZ).replace(tzinfo=None) - timedelta(days=5),
         status="disabled",
         latency=42,
@@ -204,10 +233,33 @@ async def test_get_all_proxies_with_filters(
     data = response.json()["payload"]["data"]
     counters = response.json()["payload"]["counters"]
 
-    assert len(data) == 1
+    assert len(data) == len(expected_proxy_ids)
     assert counters["total"] == 3
 
-    assert_that(data).extracting("id").is_equal_to([proxy_id])
+    assert_that(data).extracting("id").is_equal_to(expected_proxy_ids)
+
+
+async def test_get_all_proxies_with_name_filter_without_matches(
+    rest_client: AsyncClient,
+    db_rollback_session: AsyncSession,
+    sqlalchemy_model_factory_maker: Callable[
+        [type[SQLAlchemyFactory], AsyncSession], Awaitable[type[SQLAlchemyFactory]]
+    ],
+) -> None:
+    """Непопадание по имени — пустая выдача, а не 404 и не весь список; счётчики при этом не меняются."""
+    proxy_factory = await sqlalchemy_model_factory_maker(factory_cls=TelegramProxyFactory, session=db_rollback_session)
+
+    await proxy_factory.create_async(name=ALPHA_PROXY_NAME, status=ProxyStatusEnum.enabled, latency=42)
+    await proxy_factory.create_async(name=BETA_PROXY_NAME, status=ProxyStatusEnum.disabled, latency=42)
+
+    response = await rest_client.get("/api/proxies", params={"name": "нет такой прокси"})
+
+    assert response.status_code == status.HTTP_200_OK, response.text
+
+    payload = response.json()["payload"]
+
+    assert payload["data"] == []
+    assert payload["counters"] == {"total": 2, "active": 1}
 
 
 async def test_get_all_proxies_with_best_latency_on_top(

@@ -210,6 +210,89 @@
   min-width: 0;
 }
 
+/* ── Поиск по имени прокси ── */
+
+.name-filter {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.name-filter__icon {
+  position: absolute;
+  left: 10px;
+  font-size: 12px;
+  opacity: 0.65;
+  pointer-events: none;
+}
+
+.name-filter__input {
+  /* Место слева под лупу, справа — под крестик сброса */
+  padding: 7px 30px 7px 29px;
+  width: 170px;
+  max-width: 100%;
+  min-width: 0;
+  border-radius: 10px;
+  border: 1px solid var(--glass-border);
+  background: rgba(0, 0, 0, 0.25);
+  color: var(--text-primary);
+  font-family: inherit;
+  /* 16px, чтобы iOS не зумил страницу при фокусе */
+  font-size: 16px;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, width 0.2s ease;
+}
+
+.name-filter__input::placeholder {
+  color: var(--text-muted);
+}
+
+.name-filter__input:focus {
+  outline: none;
+  border-color: rgba(var(--azure-rgb), 0.55);
+  box-shadow: 0 0 0 2px rgba(var(--azure-rgb), 0.25);
+}
+
+.name-filter__input:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* Родной крестик у input[type=search] выключаем: свою кнопку видно и в Firefox */
+.name-filter__input::-webkit-search-cancel-button {
+  appearance: none;
+}
+
+.name-filter__clear {
+  position: absolute;
+  right: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-muted);
+  font-family: inherit;
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+  transition: color 0.15s ease, background 0.15s ease;
+}
+
+.name-filter__clear:hover:not(:disabled) {
+  color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.name-filter__clear:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
 /* Компактные кнопки тулбара — чтобы действия и фильтры помещались в один ряд */
 .proxies-toolbar .btn {
   padding: 9px 14px;
@@ -850,6 +933,15 @@
   /* Списку источников хватает половины экрана — под ним ещё кнопка подтверждения. */
   .source-picker__list {
     max-height: 46vh;
+  }
+
+  /* Поиск — отдельной строкой на всю ширину: в ряд с фильтрами он не влезает */
+  .proxies-toolbar .name-filter {
+    grid-column: 1 / -1;
+  }
+
+  .name-filter__input {
+    width: 100%;
   }
 
   .proxies-toolbar .segmented {

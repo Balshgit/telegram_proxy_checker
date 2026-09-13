@@ -90,6 +90,11 @@ export interface FetchProxiesParams {
   limit: number
   offset: number
   status?: ProxyStatus | null
+  /**
+   * Поиск по имени прокси. Бекенд ищет подстроку без учёта регистра,
+   * так что обрезать или приводить регистр на фронте не нужно.
+   */
+  name?: string | null
   /** Сортировка выборки. Если не передана — бекенд сортирует по латенси по возрастанию. */
   orderBy?: ProxyOrderBy | null
   signal?: AbortSignal
@@ -99,12 +104,16 @@ export async function fetchProxies({
   limit,
   offset,
   status,
+  name,
   orderBy,
   signal,
 }: FetchProxiesParams): Promise<ProxiesPageResult> {
   const query = new URLSearchParams({ limit: String(limit), offset: String(offset) })
   if (status) {
-    query.set('proxy_status', status)
+    query.set('status', status)
+  }
+  if (name) {
+    query.set('name', name)
   }
   if (orderBy) {
     query.set('order_by', orderBy)
@@ -140,9 +149,8 @@ export interface FetchRawProxiesParams {
 /**
  * GET /api/proxies/raw — урлы проксей одним текстовым буфером, каждый с новой строки.
  *
- * Ответ приходит как `text/plain`, а не в общем конверте. Фильтр передаётся
- * query-параметром `status` (внимание: тут именно `status`, а не `proxy_status`,
- * как в GET /api/proxies).
+ * Ответ приходит как `text/plain`, а не в общем конверте. Фильтр по статусу
+ * называется так же, как в GET /api/proxies, — `status`.
  */
 export async function fetchRawProxies({ status, signal }: FetchRawProxiesParams = {}): Promise<string[]> {
   const query = new URLSearchParams()

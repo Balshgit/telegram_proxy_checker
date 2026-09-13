@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from sqlakeyset import Page
-from sqlalchemy import ColumnElement, Integer, cast, delete, func, select, update, values
+from sqlalchemy import ColumnElement, Integer, case, cast, delete, func, select, update, values
 from sqlalchemy.exc import NoResultFound
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload, load_only
@@ -83,6 +83,9 @@ class ProxyRepository(BaseDBRepository):
         if filters.status:
             query = query.where(TelegramProxy.status == filters.status)
 
+        if filters.name:
+            query = query.where(TelegramProxy.name.ilike(f"%{filters.name}%"))
+
         async with self.session_wrap(session) as wrapped_session:
             proxies_page = await core_get_page(
                 selectable=query, session=wrapped_session, pagination=pagination, as_model=True
@@ -107,6 +110,7 @@ class ProxyRepository(BaseDBRepository):
                 created_at=func.now(),
                 status=proxy.status,
                 latency=proxy.latency,
+                last_active_at=func.now() if proxy.status == ProxyStatusEnum.enabled else None,
             )
             for proxy in proxies_dto
         ]
@@ -140,6 +144,8 @@ class ProxyRepository(BaseDBRepository):
             proxy.latency = latency
         if status:
             proxy.status = status
+            if status == ProxyStatusEnum.enabled:
+                proxy.last_active_at = func.now()
         proxy.updated_at = func.now()
 
         async with self.session_wrap(session) as wrapped_session:
@@ -165,6 +171,10 @@ class ProxyRepository(BaseDBRepository):
                 latency=cast(new_values.c.latency, Integer),
                 status=new_values.c.status,
                 updated_at=func.now(),
+                last_active_at=case(
+                    (new_values.c.status == ProxyStatusEnum.enabled, func.now()),
+                    else_=TelegramProxy.last_active_at,
+                ),
             )
             .returning(TelegramProxy)
             .execution_options(synchronize_session=False)

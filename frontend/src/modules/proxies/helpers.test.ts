@@ -7,6 +7,7 @@ import {
   buildPageItems,
   DEFAULT_PROXIES_QUERY,
   DEFAULT_SORT,
+  emptyProxiesHint,
   filteredTotalFor,
   keepExistingSourceIds,
   latencyTone,
@@ -153,6 +154,34 @@ describe('filteredTotalFor', () => {
   it('для «Все» берёт общий счётчик', () => {
     expect(filteredTotalFor('all', 100, 30)).toBe(100)
   })
+
+  it('при поиске по имени размер выборки неизвестен', () => {
+    // Счётчики бекенда считаются по всей базе, под подстроку из них не подобраться.
+    expect(filteredTotalFor('all', 100, 30, 'alpha')).toBeNull()
+    expect(filteredTotalFor('enabled', 100, 30, 'alpha')).toBeNull()
+  })
+
+  it('пустой поиск на счётчики не влияет', () => {
+    expect(filteredTotalFor('all', 100, 30, '')).toBe(100)
+  })
+})
+
+describe('emptyProxiesHint', () => {
+  it('про поиск по имени говорит в первую очередь', () => {
+    expect(emptyProxiesHint({ status: 'enabled', name: 'alpha' })).toContain('«alpha»')
+  })
+
+  it('слишком длинный запрос в подсказке обрезает', () => {
+    expect(emptyProxiesHint({ status: 'all', name: 'я'.repeat(40) })).toContain(`«${'я'.repeat(32)}…»`)
+  })
+
+  it('без поиска подсказывает про фильтр по статусу', () => {
+    expect(emptyProxiesHint({ status: 'disabled', name: '' })).toBe('Попробуйте изменить фильтр по статусу.')
+  })
+
+  it('без поиска и без фильтра предлагает добавить прокси', () => {
+    expect(emptyProxiesHint({ status: 'all', name: '' })).toContain('Добавить прокси')
+  })
 })
 
 describe('выбор источников', () => {
@@ -183,10 +212,11 @@ describe('выбор источников', () => {
 
 describe('parseProxiesQuery', () => {
   it('читает полный набор параметров из адреса', () => {
-    expect(parseProxiesQuery('?limit=25&offset=50&proxy_status=disabled&order_by=created_at_desc')).toEqual({
+    expect(parseProxiesQuery('?limit=25&offset=50&status=disabled&order_by=created_at_desc')).toEqual({
       limit: 25,
       offset: 50,
       status: 'disabled',
+      name: '',
       sort: { field: 'created_at', direction: 'desc' },
     })
   })
@@ -219,8 +249,25 @@ describe('parseProxiesQuery', () => {
   })
 
   it('неизвестные статус и сортировку заменяет значениями по умолчанию', () => {
-    expect(parseProxiesQuery('?proxy_status=broken').status).toBe(DEFAULT_PROXIES_QUERY.status)
+    expect(parseProxiesQuery('?status=broken').status).toBe(DEFAULT_PROXIES_QUERY.status)
     expect(parseProxiesQuery('?order_by=name').sort).toEqual(DEFAULT_SORT)
+  })
+
+  it('поиск по имени читает как есть, обрезая только пробелы по краям', () => {
+    // Регистр и середину строки не трогаем: бекенд ищет подстроку без учёта регистра.
+    expect(parseProxiesQuery('?name=Alpha+Proxy').name).toBe('Alpha Proxy')
+    expect(parseProxiesQuery('?name=++alpha++').name).toBe('alpha')
+  })
+
+  it('отсутствующий и пустой поиск дают одно и то же', () => {
+    expect(parseProxiesQuery('').name).toBe('')
+    expect(parseProxiesQuery('?name=').name).toBe('')
+    expect(parseProxiesQuery('?name=+++').name).toBe('')
+  })
+
+  it('слишком длинный поиск обрезает', () => {
+    // В базе имя прокси — varchar(200), искать по более длинной строке бессмысленно.
+    expect(parseProxiesQuery(`?name=${'я'.repeat(250)}`).name).toBe('я'.repeat(200))
   })
 
   it('не спотыкается о чужие параметры в адресе', () => {
@@ -246,13 +293,19 @@ describe('serializeProxiesQuery', () => {
         limit: 25,
         offset: 50,
         status: 'disabled',
+        name: '',
         sort: { field: 'created_at', direction: 'desc' },
       }),
-    ).toBe('limit=25&offset=50&proxy_status=disabled&order_by=created_at_desc')
+    ).toBe('limit=25&offset=50&status=disabled&order_by=created_at_desc')
+  })
+
+  it('поиск по имени пишет в адрес только когда он задан', () => {
+    expect(serializeProxiesQuery({ ...DEFAULT_PROXIES_QUERY, name: 'alpha' })).toBe('name=alpha')
+    expect(serializeProxiesQuery({ ...DEFAULT_PROXIES_QUERY, name: '' })).toBe('')
   })
 
   it('разбор и сборка обратны друг другу', () => {
-    const search = 'limit=50&offset=100&proxy_status=all&order_by=latency_desc'
+    const search = 'limit=50&offset=100&status=all&name=alpha&order_by=latency_desc'
 
     expect(serializeProxiesQuery(parseProxiesQuery(search))).toBe(search)
   })

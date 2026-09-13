@@ -32,6 +32,7 @@ class TelegramProxy(DBBase):
     )
     created_at: Mapped[datetime] = mapped_column("created_at", DateTime, default=func.now())
     updated_at: Mapped[datetime | None] = mapped_column("updated_at", DateTime)
+    last_active_at: Mapped[datetime | None] = mapped_column("last_active_at", DateTime)
     status: Mapped[ProxyStatusEnum] = mapped_column("status", ChoiceType(ProxyStatusEnum, impl=String(20)))
     latency: Mapped[int | None] = mapped_column("latency", Integer, comment="Latency to proxy")
 

@@ -134,6 +134,24 @@ export const STATUS_FILTERS: { value: StatusFilter; label: string }[] = [
   { value: 'disabled', label: 'Неактивные' },
 ]
 
+/** Тексты поля поиска по имени прокси (GET /api/proxies, `name`). */
+export const NAME_FILTER = {
+  label: 'Поиск',
+  placeholder: 'Имя прокси',
+  title: 'Поиск по имени прокси',
+  hint: 'Бекенд ищет подстроку без учёта регистра',
+  /** Крестик внутри поля. */
+  clear: 'Сбросить поиск',
+  /** Кнопка в пустом состоянии списка — подпись длиннее, чтобы не путать её с крестиком. */
+  clearAction: 'Сбросить поиск по имени',
+} as const
+
+/**
+ * Пауза после последнего нажатия клавиши, прежде чем поиск уедет в адрес и на бекенд:
+ * иначе каждая буква — это запрос к API и запись в историю браузера.
+ */
+export const NAME_FILTER_DEBOUNCE_MS = 300
+
 /* ------------------------------------------------------------------ *
  * Состояние списка в адресной строке
  * ------------------------------------------------------------------ */
@@ -148,18 +166,21 @@ export interface ProxiesQuery {
   limit: number
   offset: number
   status: StatusFilter
+  /** Поиск по имени прокси. Пустая строка — фильтра нет. */
+  name: string
   sort: SortState
 }
 
 /**
  * Имена параметров намеренно совпадают с query GET /api/proxies:
  * адрес страницы читается как запрос к API, и запомнить нужно один набор имён,
- * а не два. Отсюда `proxy_status`, а не просто `status`.
+ * а не два.
  */
 export const PROXIES_QUERY_KEYS = {
   limit: 'limit',
   offset: 'offset',
-  status: 'proxy_status',
+  status: 'status',
+  name: 'name',
   orderBy: 'order_by',
 } as const
 
@@ -168,8 +189,15 @@ export const DEFAULT_PROXIES_QUERY: ProxiesQuery = {
   limit: PAGE_SIZE_OPTIONS[0],
   offset: 0,
   status: 'enabled',
+  name: '',
   sort: DEFAULT_SORT,
 }
+
+/**
+ * Ограничение длины поиска: `name` уезжает в адресную строку и в query к API,
+ * а в базе имя прокси — `varchar(200)`, искать по более длинной строке бессмысленно.
+ */
+export const PROXY_NAME_FILTER_MAX_LENGTH = 200
 
 function toParams(search: string | URLSearchParams): URLSearchParams {
   return typeof search === 'string' ? new URLSearchParams(search) : search
@@ -200,6 +228,15 @@ function parseStatus(raw: string | null): StatusFilter {
     : DEFAULT_PROXIES_QUERY.status
 }
 
+/**
+ * Поиск по имени берём почти как есть: бекенд ищет подстроку без учёта регистра.
+ * Обрезаем только пробелы по краям (случайный пробел из адреса сузил бы выдачу до нуля)
+ * и слишком длинный хвост.
+ */
+function parseName(raw: string | null): string {
+  return (raw ?? '').trim().slice(0, PROXY_NAME_FILTER_MAX_LENGTH)
+}
+
 function parseSort(raw: string | null): SortState {
   return SORT_OPTIONS.some((option) => option.value === raw)
     ? fromOrderBy(raw as ProxyOrderBy)
@@ -215,6 +252,7 @@ export function parseProxiesQuery(search: string | URLSearchParams): ProxiesQuer
     limit,
     offset: parseOffset(params.get(PROXIES_QUERY_KEYS.offset), limit),
     status: parseStatus(params.get(PROXIES_QUERY_KEYS.status)),
+    name: parseName(params.get(PROXIES_QUERY_KEYS.name)),
     sort: parseSort(params.get(PROXIES_QUERY_KEYS.orderBy)),
   }
 }
@@ -237,6 +275,9 @@ export function serializeProxiesQuery(query: ProxiesQuery): string {
   }
   if (query.status !== DEFAULT_PROXIES_QUERY.status) {
     params.set(PROXIES_QUERY_KEYS.status, query.status)
+  }
+  if (query.name !== DEFAULT_PROXIES_QUERY.name) {
+    params.set(PROXIES_QUERY_KEYS.name, query.name)
   }
 
   const orderBy = toOrderBy(query.sort)
@@ -336,6 +377,21 @@ export function latencyTone(latency: number | null): string {
   return 'bad'
 }
 
+/**
+ * Подсказка в пустом состоянии списка: что именно стоит поправить.
+ *
+ * Поиск по имени — самая частая причина пустой выдачи, поэтому про него говорим
+ * в первую очередь, даже если заодно выставлен фильтр по статусу.
+ */
+export function emptyProxiesHint({ status, name }: Pick<ProxiesQuery, 'status' | 'name'>): string {
+  if (name) {
+    return `По запросу «${truncate(name, 32)}» ничего не нашлось. Попробуйте другое имя или сбросьте поиск.`
+  }
+  return status === 'all'
+    ? 'Нажмите «Добавить прокси», чтобы загрузить и проверить свежий список.'
+    : 'Попробуйте изменить фильтр по статусу.'
+}
+
 /** Как называть прокси в тостах и подписях: по имени, а если его нет — по id. */
 export function proxyLabel(proxy: TelegramProxy): string {
   return proxy.name ? `«${truncate(proxy.name, 32)}»` : `#${proxy.id}`
@@ -344,8 +400,21 @@ export function proxyLabel(proxy: TelegramProxy): string {
 /**
  * Считает размер текущей выборки: бекенд отдаёт счётчики по всей базе
  * (`total`) и по активным (`active`), без учёта выбранного фильтра.
+ *
+ * Фильтр по статусу из этих двух чисел восстанавливается, а поиск по имени — нет:
+ * сколько прокси попало под подстроку, бекенд не сообщает. Поэтому при активном
+ * поиске возвращаем `null` — «размер выборки неизвестен», и пагинация в этом случае
+ * должна опираться на `next_page`, а не на посчитанное число страниц.
  */
-export function filteredTotalFor(statusFilter: StatusFilter, total: number, activeCount: number): number {
+export function filteredTotalFor(
+  statusFilter: StatusFilter,
+  total: number,
+  activeCount: number,
+  nameFilter: string = DEFAULT_PROXIES_QUERY.name,
+): number | null {
+  if (nameFilter) {
+    return null
+  }
   if (statusFilter === 'enabled') {
     return activeCount
   }
