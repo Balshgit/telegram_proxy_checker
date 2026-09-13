@@ -19,8 +19,7 @@ class TaskiqTasksExecutor:
         logger.info("creating taskiq task", task_name=task_name, params=params)
         task = self.broker.find_task(task_name)
         if not task:
-            # task is not found in broker known tasks, mb you forgot to register it,
-            # check TaskiqTasks.register_tasks()
+            # task is not found in broker known tasks, mb you forgot to register it, check taskiq_tasks list
             raise UnknownTaskError(task_name=task_name)
         if execution_options is None:
             execution_options = {}
