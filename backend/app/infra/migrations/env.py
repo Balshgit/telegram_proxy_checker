@@ -59,9 +59,22 @@ def _database_url() -> str:
 def _include_object(_object: Any, _name: str | None, type_: str, _reflected: bool, _compare_to: Any) -> bool:
     """Не трогаем таблицы вне схем, которыми управляет приложение."""
     if type_ == "table":
+        # Своя служебная таблица alembic в моделях не описана, поэтому autogenerate считает её
+        # лишней и генерирует `op.drop_table("alembic_version")`. Встроенный фильтр alembic её
+        # не спасает: при `include_schemas=True` схема по умолчанию нормализуется в `None`, и
+        # проверка «схема таблицы == version_table_schema» не совпадает с нашим явным "public".
+        if _name == VERSION_TABLE:
+            return False
+
         schema = getattr(_object, "schema", None)
         return schema is None or schema in {member.value for member in DatabaseSchema}
-    return True
+
+    # Та же нормализация схемы ломает сравнение внешних ключей: в моделях цель ключа лежит
+    # в схеме "public", а из базы она приезжает без схемы, — и autogenerate на каждом прогоне
+    # предлагает пересоздать все FK, хотя ничего не менялось. Ключи в этом проекте всё равно
+    # пишутся в миграциях руками (см. 0002, где FK навешивается отдельно из-за порядка таблиц),
+    # поэтому из автогенерации их исключаем: новый ключ нужно добавить в миграцию самому.
+    return type_ != "foreign_key_constraint"
 
 
 def _render_item(type_: str, obj: Any, autogen_context: Any) -> str | bool:

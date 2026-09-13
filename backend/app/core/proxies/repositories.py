@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from sqlakeyset import Page
-from sqlalchemy import ColumnElement, Integer, cast, delete, func, select, update, values
+from sqlalchemy import ColumnElement, Integer, case, cast, delete, func, select, update, values
 from sqlalchemy.exc import NoResultFound
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload, load_only
@@ -110,6 +110,7 @@ class ProxyRepository(BaseDBRepository):
                 created_at=func.now(),
                 status=proxy.status,
                 latency=proxy.latency,
+                last_active_at=func.now() if proxy.status == ProxyStatusEnum.enabled else None,
             )
             for proxy in proxies_dto
         ]
@@ -160,9 +161,8 @@ class ProxyRepository(BaseDBRepository):
             TelegramProxy.name,
             TelegramProxy.latency,
             TelegramProxy.status,
-            TelegramProxy.last_active_at,
             name="new_proxies_values",
-        ).data([(proxy.name, proxy.latency, proxy.status.value, proxy.last_active_at) for proxy in proxies_dto])
+        ).data([(proxy.name, proxy.latency, proxy.status.value) for proxy in proxies_dto])
 
         query = (
             update(TelegramProxy)
@@ -171,8 +171,9 @@ class ProxyRepository(BaseDBRepository):
                 latency=cast(new_values.c.latency, Integer),
                 status=new_values.c.status,
                 updated_at=func.now(),
-                last_active_at=(
-                    func.now() if new_values.c.status == ProxyStatusEnum.enabled else TelegramProxy.last_active_at
+                last_active_at=case(
+                    (new_values.c.status == ProxyStatusEnum.enabled, func.now()),
+                    else_=TelegramProxy.last_active_at,
                 ),
             )
             .returning(TelegramProxy)

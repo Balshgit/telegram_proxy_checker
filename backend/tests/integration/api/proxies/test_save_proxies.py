@@ -588,3 +588,50 @@ async def test_save_new_proxies_sends_normalized_urls_to_taskiq(
     saved_urls = set(await get_proxies_by_url(db_rollback_session))
 
     assert saved_urls | set(deferred_urls) == set(expected_urls)
+
+
+async def test_save_new_proxies_stamps_last_active_at_for_active_proxies(
+    rest_client: AsyncClient,
+    db_rollback_session: AsyncSession,
+    sqlalchemy_model_factory_maker: Callable[
+        [type[SQLAlchemyFactory], AsyncSession], Awaitable[type[SQLAlchemyFactory]]
+    ],
+) -> None:
+    """
+    Прокси, ответившая на пинг при добавлении, сразу получает время активности.
+
+    Иначе у свежей активной прокси поле пустовало бы до первой массовой перепроверки, и по нему
+    нельзя было бы отличить «никогда не отвечала» от «добавлена только что и отвечает».
+    """
+    proxy_factory = await sqlalchemy_model_factory_maker(factory_cls=TelegramProxyFactory, session=db_rollback_session)
+    proxies_source_factory = await sqlalchemy_model_factory_maker(
+        factory_cls=TelegramProxiesSourceFactory, session=db_rollback_session
+    )
+
+    await proxies_source_factory.create_async(status=ProxySourceStatusEnum.enabled)
+
+    active_proxy, unreachable_proxy = (proxy_factory.build(), proxy_factory.build())
+    raw_proxies = f"{active_proxy.url}\n{unreachable_proxy.url}"
+
+    latency_by_url: dict[str, int | None] = {active_proxy.url: 10, unreachable_proxy.url: None}
+
+    async with (
+        mocked_github_get_proxies(raw_proxies),
+        mocked_get_host_latency_for_urls(latency_by_url),
+    ):
+        response = await rest_client.post("/api/proxies")
+
+    assert response.status_code == status.HTTP_201_CREATED, response.text
+
+    proxies_in_db = await get_proxies_by_url(db_rollback_session)
+
+    saved_active = proxies_in_db[active_proxy.url]
+    assert saved_active.status == ProxyStatusEnum.enabled
+    assert saved_active.last_active_at is not None
+    # `created_at` и `last_active_at` приходят из одного INSERT, поэтому обязаны совпадать.
+    assert saved_active.last_active_at == saved_active.created_at
+
+    saved_unreachable = proxies_in_db[unreachable_proxy.url]
+    assert saved_unreachable.status == ProxyStatusEnum.disabled
+    # Прокси не ответила ни разу — времени активности у неё нет.
+    assert saved_unreachable.last_active_at is None

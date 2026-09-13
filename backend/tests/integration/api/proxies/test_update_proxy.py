@@ -1,4 +1,5 @@
 from collections.abc import Awaitable, Callable
+from datetime import datetime, timedelta
 
 from httpx import URL, AsyncClient
 from polyfactory.factories.sqlalchemy_factory import SQLAlchemyFactory
@@ -6,15 +7,26 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette import status
 
+from app.core.constants import MOSCOW_TZ
 from app.core.proxies.constants import ProxyStatusEnum
 from app.core.proxies.dto import ProxySourceToPingDTO
 from app.core.proxies.models import TelegramProxy
 from app.core.proxies_sources.constants import ProxySourceStatusEnum
-from tests.integration.api.proxies.helpers import MISSING_PROXY_ID, build_proxy_url, mocked_get_host_latency
+from tests.integration.api.proxies.helpers import (
+    MISSING_PROXY_ID,
+    build_proxy_url,
+    get_proxies_by_id,
+    mocked_get_host_latency,
+)
 from tests.support.factories.proxies import TelegramProxyFactory
 from tests.support.factories.proxies_sources import TelegramProxiesSourceFactory
 
 PROXY_SERVER = "1.2.3.4"
+
+#: Прежнее время активности прокси. Заведомо старое: весь тест идёт в одной транзакции,
+#: а `func.now()` в постгресе — это её начало, поэтому «сдвинулось ли время вперёд»
+#: можно проверить только относительно даты, выставленной руками.
+WAS_ACTIVE_AT = datetime.now(tz=MOSCOW_TZ).replace(tzinfo=None) - timedelta(days=3)
 
 
 async def test_update_a_proxy_status(
@@ -215,7 +227,9 @@ async def test_update_a_proxy_without_any_changes(
 ) -> None:
     proxy_factory = await sqlalchemy_model_factory_maker(factory_cls=TelegramProxyFactory, session=db_rollback_session)
 
-    proxy = await proxy_factory.create_async(status=ProxyStatusEnum.disabled, latency=100, updated_at=None)
+    proxy = await proxy_factory.create_async(
+        status=ProxyStatusEnum.disabled, latency=100, updated_at=None, last_active_at=WAS_ACTIVE_AT
+    )
     proxy_id, source_id = proxy.id, proxy.source_id
 
     response = await rest_client.patch(f"/api/proxies/{proxy_id}", json={})
@@ -230,6 +244,7 @@ async def test_update_a_proxy_without_any_changes(
     assert updated_proxy.status == ProxyStatusEnum.disabled
     assert updated_proxy.latency == 100
     assert updated_proxy.updated_at is None
+    assert updated_proxy.last_active_at == WAS_ACTIVE_AT
     assert updated_proxy.source_id == source_id
 
 
@@ -279,3 +294,163 @@ async def test_update_a_proxy_with_unknown_status(
     assert not_updated_proxy.status == ProxyStatusEnum.disabled
     assert not_updated_proxy.updated_at is None
     assert not_updated_proxy.source_id == source_id
+
+
+async def test_update_a_proxy_to_enabled_stamps_last_active_at(
+    rest_client: AsyncClient,
+    db_rollback_session: AsyncSession,
+    sqlalchemy_model_factory_maker: Callable[
+        [type[SQLAlchemyFactory], AsyncSession], Awaitable[type[SQLAlchemyFactory]]
+    ],
+) -> None:
+    """
+    Пометили прокси активной — база проставила время активности.
+
+    Время сверяем с `updated_at`, а не с питоновским `datetime.now()`: оба поля получают
+    `func.now()` в одном UPDATE, а постгрес вычисляет `now()` один раз на запрос. Так тест
+    заодно ловит подмену источника времени на питоновский.
+    """
+    proxy_factory = await sqlalchemy_model_factory_maker(factory_cls=TelegramProxyFactory, session=db_rollback_session)
+
+    proxy = await proxy_factory.create_async(
+        status=ProxyStatusEnum.disabled, latency=100, updated_at=None, last_active_at=None
+    )
+    proxy_id = proxy.id
+
+    response = await rest_client.patch(f"/api/proxies/{proxy_id}", json={"status": ProxyStatusEnum.enabled})
+
+    assert response.status_code == status.HTTP_202_ACCEPTED, response.text
+
+    updated_proxy = (await get_proxies_by_id(db_rollback_session))[proxy_id]
+
+    assert updated_proxy.status == ProxyStatusEnum.enabled
+    assert updated_proxy.last_active_at is not None
+    assert updated_proxy.last_active_at == updated_proxy.updated_at
+
+
+async def test_update_a_proxy_to_disabled_does_not_stamp_last_active_at(
+    rest_client: AsyncClient,
+    db_rollback_session: AsyncSession,
+    sqlalchemy_model_factory_maker: Callable[
+        [type[SQLAlchemyFactory], AsyncSession], Awaitable[type[SQLAlchemyFactory]]
+    ],
+) -> None:
+    """Время активности проставляется только на активный статус, `updated_at` — на любой."""
+    proxy_factory = await sqlalchemy_model_factory_maker(factory_cls=TelegramProxyFactory, session=db_rollback_session)
+
+    proxy = await proxy_factory.create_async(
+        status=ProxyStatusEnum.enabled, latency=100, updated_at=None, last_active_at=None
+    )
+    proxy_id = proxy.id
+
+    response = await rest_client.patch(f"/api/proxies/{proxy_id}", json={"status": ProxyStatusEnum.disabled})
+
+    assert response.status_code == status.HTTP_202_ACCEPTED, response.text
+
+    updated_proxy = (await get_proxies_by_id(db_rollback_session))[proxy_id]
+
+    assert updated_proxy.status == ProxyStatusEnum.disabled
+    assert updated_proxy.updated_at is not None
+    assert updated_proxy.last_active_at is None
+
+
+async def test_update_a_proxy_to_disabled_keeps_previous_last_active_at(
+    rest_client: AsyncClient,
+    db_rollback_session: AsyncSession,
+    sqlalchemy_model_factory_maker: Callable[
+        [type[SQLAlchemyFactory], AsyncSession], Awaitable[type[SQLAlchemyFactory]]
+    ],
+) -> None:
+    """Прокси отвалилась — прежнее время активности не затирается: это история, а не текущий статус."""
+    proxy_factory = await sqlalchemy_model_factory_maker(factory_cls=TelegramProxyFactory, session=db_rollback_session)
+
+    proxy = await proxy_factory.create_async(
+        status=ProxyStatusEnum.enabled, latency=100, updated_at=None, last_active_at=WAS_ACTIVE_AT
+    )
+    proxy_id = proxy.id
+
+    response = await rest_client.patch(f"/api/proxies/{proxy_id}", json={"status": ProxyStatusEnum.disabled})
+
+    assert response.status_code == status.HTTP_202_ACCEPTED, response.text
+
+    updated_proxy = (await get_proxies_by_id(db_rollback_session))[proxy_id]
+
+    assert updated_proxy.status == ProxyStatusEnum.disabled
+    assert updated_proxy.last_active_at == WAS_ACTIVE_AT
+
+
+async def test_update_a_proxy_to_enabled_moves_last_active_at_forward(
+    rest_client: AsyncClient,
+    db_rollback_session: AsyncSession,
+    sqlalchemy_model_factory_maker: Callable[
+        [type[SQLAlchemyFactory], AsyncSession], Awaitable[type[SQLAlchemyFactory]]
+    ],
+) -> None:
+    """Прокси и была активной — время активности всё равно сдвигается: она активна прямо сейчас."""
+    proxy_factory = await sqlalchemy_model_factory_maker(factory_cls=TelegramProxyFactory, session=db_rollback_session)
+
+    proxy = await proxy_factory.create_async(
+        status=ProxyStatusEnum.enabled, latency=100, updated_at=None, last_active_at=WAS_ACTIVE_AT
+    )
+    proxy_id = proxy.id
+
+    response = await rest_client.patch(f"/api/proxies/{proxy_id}", json={"status": ProxyStatusEnum.enabled})
+
+    assert response.status_code == status.HTTP_202_ACCEPTED, response.text
+
+    updated_proxy = (await get_proxies_by_id(db_rollback_session))[proxy_id]
+
+    assert updated_proxy.last_active_at is not None
+    assert updated_proxy.last_active_at > WAS_ACTIVE_AT
+
+
+async def test_update_a_proxy_latency_stamps_last_active_at_when_proxy_answers(
+    rest_client: AsyncClient,
+    db_rollback_session: AsyncSession,
+    sqlalchemy_model_factory_maker: Callable[
+        [type[SQLAlchemyFactory], AsyncSession], Awaitable[type[SQLAlchemyFactory]]
+    ],
+) -> None:
+    """Статус после перепинга выводится из ответа прокси, и активный статус тянет за собой время."""
+    proxy_factory = await sqlalchemy_model_factory_maker(factory_cls=TelegramProxyFactory, session=db_rollback_session)
+
+    proxy = await proxy_factory.create_async(
+        status=ProxyStatusEnum.disabled, latency=None, updated_at=None, last_active_at=None
+    )
+    proxy_id = proxy.id
+
+    async with mocked_get_host_latency(default_latency=777):
+        response = await rest_client.patch(f"/api/proxies/{proxy_id}", json={"is_latency_update": True})
+
+    assert response.status_code == status.HTTP_202_ACCEPTED, response.text
+
+    updated_proxy = (await get_proxies_by_id(db_rollback_session))[proxy_id]
+
+    assert updated_proxy.status == ProxyStatusEnum.enabled
+    assert updated_proxy.last_active_at is not None
+    assert updated_proxy.last_active_at == updated_proxy.updated_at
+
+
+async def test_update_a_proxy_latency_keeps_last_active_at_when_proxy_is_unreachable(
+    rest_client: AsyncClient,
+    db_rollback_session: AsyncSession,
+    sqlalchemy_model_factory_maker: Callable[
+        [type[SQLAlchemyFactory], AsyncSession], Awaitable[type[SQLAlchemyFactory]]
+    ],
+) -> None:
+    proxy_factory = await sqlalchemy_model_factory_maker(factory_cls=TelegramProxyFactory, session=db_rollback_session)
+
+    proxy = await proxy_factory.create_async(
+        status=ProxyStatusEnum.enabled, latency=100, updated_at=None, last_active_at=WAS_ACTIVE_AT
+    )
+    proxy_id = proxy.id
+
+    async with mocked_get_host_latency(default_latency=None):
+        response = await rest_client.patch(f"/api/proxies/{proxy_id}", json={"is_latency_update": True})
+
+    assert response.status_code == status.HTTP_202_ACCEPTED, response.text
+
+    updated_proxy = (await get_proxies_by_id(db_rollback_session))[proxy_id]
+
+    assert updated_proxy.status == ProxyStatusEnum.disabled
+    assert updated_proxy.last_active_at == WAS_ACTIVE_AT
