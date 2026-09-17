@@ -14,7 +14,7 @@ class TaskiqSettings(BaseSettings):
 
     # Интервалы `TaskiqSchedulerRunner`: как часто планировщик перечитывает расписания и как часто делает тик цикла.
     TASKIQ_SCHEDULES_UPDATE_INTERVAL: IntervalSeconds = timedelta(hours=1)
-    TASKIQ_SCHEDULER_LOOP_INTERVAL: IntervalSeconds = timedelta(minutes=5)
+    TASKIQ_SCHEDULER_LOOP_INTERVAL: IntervalSeconds = timedelta(seconds=30)
 
 
 class ProxySettings(BaseSettings):

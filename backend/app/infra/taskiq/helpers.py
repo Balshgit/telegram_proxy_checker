@@ -23,7 +23,7 @@ class TaskPeriodEnum(StrEnum):
     every_five_minutes = "*/5 * * * *"
     every_hour = "0 */1 * * *"
     every_six_hours = "0 */6 * * *"
-    every_day = "0 3 * * *"
+    every_day = "0 2 * * *"
 
 
 @dataclass(frozen=True, kw_only=True, slots=True)
@@ -101,7 +101,7 @@ taskiq_tasks = TaskiqTasks.build(
     ),
     TaskConfig(
         func=cron_update_proxies_in_database_task,
-        interval=timedelta(hours=4),
+        interval=timedelta(hours=1),
         labels={"timeout": 30, "retry_on_error": False, "max_retries": 0},
     ),
     TaskConfig(
