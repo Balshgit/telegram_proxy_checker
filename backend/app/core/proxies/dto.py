@@ -43,6 +43,7 @@ class ProxyDTO(ProxyBaseDTO):
 class ProxyServerDTO:
     host: str | None = None
     port: int | None = None
+    secret: str = ""
 
 
 @dataclass(slots=True, kw_only=True)

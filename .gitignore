@@ -258,3 +258,14 @@ helm/Chart.lock
 /artifacts/
 .editorconfig
 delete_me
+
+#### android ####
+*.iml
+.gradle/
+.kotlin/
+local.properties
+android/build/
+android/app/build/
+android/captures/
+.externalNativeBuild
+.cxx
