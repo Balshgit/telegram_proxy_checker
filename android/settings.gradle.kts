@@ -22,5 +22,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "telegram_proxy_checker"
+rootProject.name = "tgproxycheck"
 include(":app")

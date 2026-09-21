@@ -1,4 +1,4 @@
-package com.example.telegramproxypingchecker
+package com.example.tgproxycheck
 
 /*
  * Порт backend/app/infra/gateways/mtproto_checker.py (MTProxyChecker.check) один в один.

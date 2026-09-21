@@ -1,4 +1,4 @@
-package com.example.telegramproxypingchecker
+package com.example.tgproxycheck
 
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -9,7 +9,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 
-enum class Phase { Idle, Loading, Checking, Done, Error }
+enum class Phase { Idle, Loading, Checking, Done, Cancelled, Error }
 
 data class UiState(
     val phase: Phase = Phase.Idle,
@@ -63,5 +63,13 @@ class ProxyViewModel : ViewModel() {
 
             state = state.copy(phase = Phase.Done)
         }
+    }
+
+    /** Прерывает загрузку списка или проверку; уже найденные рабочие прокси остаются в списке. */
+    fun cancel() {
+        if (!state.isBusy) return
+        job?.cancel()
+        job = null
+        state = state.copy(phase = Phase.Cancelled)
     }
 }

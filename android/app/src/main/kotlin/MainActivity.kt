@@ -1,4 +1,4 @@
-package com.example.telegramproxypingchecker
+package com.example.tgproxycheck
 
 import android.content.ActivityNotFoundException
 import android.content.ClipData
@@ -33,6 +33,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -66,7 +67,7 @@ class MainActivity : ComponentActivity() {
         setContent {
             AppTheme {
                 val vm: ProxyViewModel = viewModel()
-                ProxyScreen(state = vm.state, onRefresh = vm::start)
+                ProxyScreen(state = vm.state, onRefresh = vm::start, onCancel = vm::cancel)
             }
         }
     }
@@ -86,7 +87,7 @@ private fun AppTheme(content: @Composable () -> Unit) {
 }
 
 @Composable
-fun ProxyScreen(state: UiState, onRefresh: () -> Unit) {
+fun ProxyScreen(state: UiState, onRefresh: () -> Unit, onCancel: () -> Unit) {
     val context = LocalContext.current
 
     Scaffold(modifier = Modifier.fillMaxSize()) { inner ->
@@ -105,6 +106,7 @@ fun ProxyScreen(state: UiState, onRefresh: () -> Unit) {
                 StatusCard(
                     state = state,
                     onRefresh = onRefresh,
+                    onCancel = onCancel,
                     onCopyAll = {
                         copy(context, state.alive.joinToString("\n") { it.proxy.url })
                     },
@@ -128,7 +130,7 @@ fun ProxyScreen(state: UiState, onRefresh: () -> Unit) {
 private fun Header() {
     Column(Modifier.padding(bottom = 4.dp)) {
         Text(
-            "Proxy Checker",
+            "tgproxycheck",
             style = MaterialTheme.typography.headlineMedium,
             fontWeight = FontWeight.Bold,
         )
@@ -141,7 +143,7 @@ private fun Header() {
 }
 
 @Composable
-private fun StatusCard(state: UiState, onRefresh: () -> Unit, onCopyAll: () -> Unit) {
+private fun StatusCard(state: UiState, onRefresh: () -> Unit, onCancel: () -> Unit, onCopyAll: () -> Unit) {
     Card(
         shape = RoundedCornerShape(20.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
@@ -152,6 +154,9 @@ private fun StatusCard(state: UiState, onRefresh: () -> Unit, onCopyAll: () -> U
                     if (state.total > 0) "Загружаю список… ${state.total}" else "Загружаю список…"
                 Phase.Checking -> "Проверено ${state.checked} из ${state.total}"
                 Phase.Done -> "Рабочих: ${state.alive.size} из ${state.total}"
+                Phase.Cancelled ->
+                    if (state.checked > 0) "Отменено: проверено ${state.checked} из ${state.total}, рабочих ${state.alive.size}"
+                    else "Проверка отменена"
                 Phase.Error -> "Не удалось загрузить список"
             }
             Text(
@@ -208,15 +213,24 @@ private fun StatusCard(state: UiState, onRefresh: () -> Unit, onCopyAll: () -> U
 
             Spacer(Modifier.height(14.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Button(onClick = onRefresh, enabled = !state.isBusy) {
-                    if (state.isBusy) {
+                if (state.isBusy) {
+                    Button(
+                        onClick = onCancel,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.error,
+                            contentColor = MaterialTheme.colorScheme.onError,
+                        ),
+                    ) {
                         CircularProgressIndicator(
                             modifier = Modifier.size(16.dp),
                             strokeWidth = 2.dp,
+                            color = MaterialTheme.colorScheme.onError,
                         )
                         Spacer(Modifier.width(8.dp))
-                        Text("Проверяю")
-                    } else {
+                        Text("Отменить")
+                    }
+                } else {
+                    Button(onClick = onRefresh) {
                         Text("Проверить снова")
                     }
                 }

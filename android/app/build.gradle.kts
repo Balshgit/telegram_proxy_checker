@@ -4,13 +4,13 @@ plugins {
 }
 
 android {
-    namespace = "com.example.telegramproxypingchecker"
+    namespace = "com.example.tgproxycheck"
     compileSdk {
         version = release(37)
     }
 
     defaultConfig {
-        applicationId = "com.example.telegram_proxy_checker"
+        applicationId = "com.example.tgproxycheck"
         minSdk = 24
         targetSdk = 37
         versionCode = 1

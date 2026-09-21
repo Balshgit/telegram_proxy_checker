@@ -1,4 +1,4 @@
-package com.example.telegramproxypingchecker
+package com.example.tgproxycheck
 
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
