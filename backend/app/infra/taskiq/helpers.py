@@ -93,21 +93,21 @@ class TaskiqTasks:
 taskiq_tasks = TaskiqTasks.build(
     TaskConfig(
         func=save_proxies_to_database_task,
-        labels={"timeout": 30, "retry_on_error": False, "max_retries": 0},
+        labels={"timeout": 60, "retry_on_error": False, "max_retries": 0},
     ),
     TaskConfig(
         func=update_proxies_in_database_task,
-        labels={"timeout": 30, "retry_on_error": False, "max_retries": 0},
+        labels={"timeout": 60, "retry_on_error": False, "max_retries": 0},
     ),
     TaskConfig(
         func=cron_update_proxies_in_database_task,
         interval=timedelta(hours=1),
-        labels={"timeout": 30, "retry_on_error": False, "max_retries": 0},
+        labels={"timeout": 60, "retry_on_error": False, "max_retries": 0},
     ),
     TaskConfig(
         func=cron_delete_stale_proxies_task,
         cron=TaskPeriodEnum.every_day,
-        labels={"timeout": 30, "retry_on_error": False, "max_retries": 0},
+        labels={"timeout": 60, "retry_on_error": False, "max_retries": 0},
     ),
     TaskConfig(
         func=cron_add_new_proxies_to_database_task,
