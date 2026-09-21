@@ -22,26 +22,11 @@ import struct
 import time
 from contextlib import suppress
 from dataclasses import dataclass
-from enum import StrEnum
 from typing import ClassVar
 
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 
-
-class ProxyCheckError(StrEnum):
-    bad_secret = "bad_secret"
-    connect_failed = "connect_failed"
-    tls_rejected = "tls_rejected"  # в ответ на ClientHello пришёл не ServerHello: не тот секрет или не MTProxy
-    tls_bad_hmac = "tls_bad_hmac"  # ServerHello пришёл, но подписан не нашим секретом
-    no_answer = "no_answer"  # прокси закрыла соединение, не дождавшись ответа Telegram
-    bad_answer = "bad_answer"  # пришло что-то, но не resPQ на наш запрос
-    timeout = "timeout"  # прокси молчит: обычно так MTProxy реагирует на неверный секрет
-
-
-class SecretMode(StrEnum):
-    plain = "plain"
-    padded = "dd"
-    fake_tls = "ee"
+from app.core.proxies.constants import ProxyCheckError, SecretMode
 
 
 @dataclass(slots=True, frozen=True)
