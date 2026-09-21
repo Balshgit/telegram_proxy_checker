@@ -10,7 +10,7 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.example.telegramproxypingchecker"
+        applicationId = "com.example.telegram_proxy_checker"
         minSdk = 24
         targetSdk = 37
         versionCode = 1

@@ -22,5 +22,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "Telegram proxy ping checker"
+rootProject.name = "telegram_proxy_checker"
 include(":app")
