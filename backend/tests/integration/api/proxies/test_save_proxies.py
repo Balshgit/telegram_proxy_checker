@@ -17,6 +17,7 @@ from tests.integration.api.proxies.helpers import (
     TG_PROXY_URL_BASE,
     build_proxy_url,
     deferred_source_urls,
+    deferred_source_urls_by_call,
     get_proxies_by_url,
     mocked_get_host_latency_for_urls,
     mocked_github_get_proxies,
@@ -31,6 +32,9 @@ from tests.support.factories.proxies import TelegramProxyFactory
 from tests.support.factories.proxies_sources import TelegramProxiesSourceFactory
 
 PROXIES_OVER_CHUNK_SIZE = 2
+
+#: Хвост на два полных чанка и ещё один урл: сервис должен разложить его на три задачи.
+PROXIES_OVER_SEVERAL_CHUNKS = CHUNK_SIZE_FOR_TESTS * 2 + 1
 
 
 async def test_save_new_proxies_success(
@@ -635,3 +639,48 @@ async def test_save_new_proxies_stamps_last_active_at_for_active_proxies(
     assert saved_unreachable.status == ProxyStatusEnum.disabled
     # Прокси не ответила ни разу — времени активности у неё нет.
     assert saved_unreachable.last_active_at is None
+
+
+async def test_save_proxies_splits_tail_into_task_per_chunk(
+    rest_client: AsyncClient,
+    db_rollback_session: AsyncSession,
+    sqlalchemy_model_factory_maker: Callable[
+        [type[SQLAlchemyFactory], AsyncSession], Awaitable[type[SQLAlchemyFactory]]
+    ],
+) -> None:
+    """
+    Хвост больше чанка уезжает в taskiq несколькими задачами, по чанку на задачу.
+
+    Одна задача на весь хвост не укладывалась в таймаут воркера и падала с `deadline exceeded`.
+    """
+    proxies_source_factory = await sqlalchemy_model_factory_maker(
+        factory_cls=TelegramProxiesSourceFactory, session=db_rollback_session
+    )
+    await proxies_source_factory.create_async(status=ProxySourceStatusEnum.enabled)
+
+    total_proxies = CHUNK_SIZE_FOR_TESTS + PROXIES_OVER_SEVERAL_CHUNKS
+    all_urls = [build_proxy_url(server=f"10.0.0.{number}") for number in range(total_proxies)]
+
+    async with (
+        mocked_save_postgres_chunk_size(),
+        mocked_github_get_proxies("\n".join(all_urls)),
+        mocked_get_host_latency_for_urls(default_latency=55) as mocked_latency,
+        mocked_taskiq_run() as mocked_taskiq,
+    ):
+        response = await rest_client.post("/api/proxies")
+
+    assert response.status_code == status.HTTP_201_CREATED, response.text
+
+    pinged_urls = {str(proxy_to_ping.url) for proxy_to_ping in pinged_proxies(mocked_latency)}
+    assert len(pinged_urls) == CHUNK_SIZE_FOR_TESTS
+
+    assert mocked_taskiq.await_count == 3
+    assert all(call.args[0] is save_proxies_to_database_task for call in mocked_taskiq.await_args_list)
+
+    chunks = deferred_source_urls_by_call(mocked_taskiq)
+    assert [len(chunk) for chunk in chunks] == [CHUNK_SIZE_FOR_TESTS, CHUNK_SIZE_FOR_TESTS, 1]
+
+    deferred_urls = [item["url"] for chunk in chunks for item in chunk]
+    assert len(deferred_urls) == len(set(deferred_urls)) == PROXIES_OVER_SEVERAL_CHUNKS
+    assert pinged_urls.isdisjoint(deferred_urls)
+    assert pinged_urls | set(deferred_urls) == set(all_urls)
