@@ -80,7 +80,7 @@ def deferred_source_urls(mocked_taskiq: AsyncMock) -> list[dict[str, Any]]:
 
 
 def deferred_source_urls_by_call(mocked_taskiq: AsyncMock) -> list[list[dict[str, Any]]]:
-    """"Хвост" урлов, разложенный по вызовам taskiq: сервис отправляет отдельную задачу на каждый чанк."""
+    """ "Хвост" урлов, разложенный по вызовам taskiq: сервис отправляет отдельную задачу на каждый чанк."""
     return [list(call.kwargs["params"][DEFERRED_URLS_PARAM]) for call in mocked_taskiq.await_args_list]
 
 
