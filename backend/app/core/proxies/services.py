@@ -1,6 +1,8 @@
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import timedelta
-from itertools import chain
+from itertools import batched, chain
+from typing import Any
 
 from sqlakeyset import Page
 
@@ -126,11 +128,7 @@ class ProxyService:
                 source_ids=collect_source_ids(proxies_dtos), session=session
             )
 
-        if all_next_proxies := urls_for_ping[SAVE_POSTGRES_CHUNK_SIZE:]:
-            await self.taskiq_tasks_executor.run(
-                save_proxies_to_database_task,
-                params={"source_urls": [su.to_dict() for su in all_next_proxies]},
-            )
+        await self._defer_in_chunks(save_proxies_to_database_task, urls_for_ping[SAVE_POSTGRES_CHUNK_SIZE:])
 
     async def update_proxy(
         self, proxy_id: int, is_latency_update: bool = False, status: ProxyStatusEnum | None = None
@@ -195,11 +193,7 @@ class ProxyService:
                     source_ids=source_ids_to_recalculate, session=session
                 )
 
-        if all_next_existing_proxies := existing_proxies_urls[SAVE_POSTGRES_CHUNK_SIZE:]:
-            await self.taskiq_tasks_executor.run(
-                update_proxies_in_database_task,
-                params={"source_urls": [su.to_dict() for su in all_next_existing_proxies]},
-            )
+        await self._defer_in_chunks(update_proxies_in_database_task, existing_proxies_urls[SAVE_POSTGRES_CHUNK_SIZE:])
 
     async def delete_proxy_by_id(self, proxy_id: int) -> None:
         async with self.repository.get_transactional_session() as session:
@@ -208,3 +202,14 @@ class ProxyService:
 
             if source_id is not None:
                 await self.proxy_source_service.recalculate_counters(source_ids={source_id}, session=session)
+
+    async def _defer_in_chunks(self, task: Callable[..., Any], urls: list[ProxySourceToPingDTO]) -> None:
+        """
+        Отправляет "хвост" урлов в taskiq отдельной задачей на каждый чанк.
+
+        Одна задача на весь хвост упиралась в таймаут воркера (60 с): чанки проверялись по очереди,
+        и при нескольких тысячах прокси задача не успевала и падала с `deadline exceeded`.
+        Задача на чанк укладывается в одну пачку проверок (не дольше таймаута `run_async`) и запись в базу.
+        """
+        for urls_chunk in batched(urls, SAVE_POSTGRES_CHUNK_SIZE):  # noqa: B911
+            await self.taskiq_tasks_executor.run(task, params={"source_urls": [su.to_dict() for su in urls_chunk]})

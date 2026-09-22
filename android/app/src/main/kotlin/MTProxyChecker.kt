@@ -12,17 +12,23 @@ package com.example.tgproxycheck
  * Пришёл `resPQ` — значит, прокси знает секрет и реально пересылает трафик до серверов Telegram.
  */
 
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import java.io.EOFException
 import java.io.IOException
 import java.io.InputStream
 import java.io.OutputStream
+import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.net.Socket
 import java.net.SocketException
+import java.net.SocketTimeoutException
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.security.MessageDigest
@@ -263,6 +269,12 @@ class MTProxyChecker(val timeout: Double = PROXY_PING_TIMEOUT, val dcId: Int = 2
     companion object {
         const val PROXY_PING_TIMEOUT = 10.0
 
+        /**
+         * Отдельный scope для DNS: InetAddress.getByName нельзя прервать ни отменой корутины, ни закрытием сокета.
+         * Резолв идёт «в фоне», а проверка ждёт его не дольше оставшегося таймаута и уходит, не дожидаясь.
+         */
+        private val dnsScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
         const val REQ_PQ_MULTI = 0xBE7E8EF1.toInt()
         const val RES_PQ = 0x05162463
         const val MAX_RANDOM_PADDING = 16
@@ -379,30 +391,44 @@ class MTProxyChecker(val timeout: Double = PROXY_PING_TIMEOUT, val dcId: Int = 2
                 answer.copyOfRange(24, 40).contentEquals(nonce)
     }
 
-    /** Latency в результате — время от начала коннекта до ответа `resPQ` от Telegram. */
+    /** Latency в результате — время от начала проверки (включая DNS) до ответа `resPQ` от Telegram. */
     suspend fun check(host: String, port: Int, secret: String): ProxyCheckResult {
         val parsedSecret = try {
             MTProxySecret.parse(secret)
         } catch (e: IllegalArgumentException) {
             return ProxyCheckResult(isConnected = false, error = ProxyCheckError.BAD_SECRET)
         }
+        val timeoutResult = ProxyCheckResult(isConnected = false, error = ProxyCheckError.TIMEOUT)
+        val connectFailed = ProxyCheckResult(isConnected = false, error = ProxyCheckError.CONNECT_FAILED)
+        val startedAt = System.nanoTime()
+        val deadline = startedAt + (timeout * 1_000_000_000).toLong()
+
+        if (port !in 0..65535) return connectFailed // в Python это OSError/OverflowError при коннекте
+        val ip = when (val resolved = resolve(host, deadline)) {
+            is DnsResult.Ok -> resolved.address
+            DnsResult.Failed -> return connectFailed
+            DnsResult.TimedOut -> return timeoutResult
+        }
+        val address = InetSocketAddress(ip, port)
+
         return withContext(Dispatchers.IO) {
             val socket = Socket()
             val timedOut = AtomicBoolean(false)
             // Аналог asyncio.timeout: по истечении общего таймаута рвём сокет, блокирующие вызовы падают.
-            val watchdog = launch {
+            // Сторож живёт на Dispatchers.Default: потоки IO могут быть все заняты блокирующими сокетами,
+            // и тогда сторож на IO не смог бы проснуться вовремя.
+            val watchdog = launch(Dispatchers.Default) {
                 try {
-                    delay((timeout * 1000).toLong())
+                    delay(remainingMs(deadline))
                     timedOut.set(true)
                 } finally {
                     runCatching { socket.close() }
                 }
             }
             try {
-                doCheck(socket, host, port, parsedSecret, timedOut)
+                doCheck(socket, address, parsedSecret, timedOut, startedAt, deadline)
             } catch (e: IOException) {
-                if (timedOut.get()) ProxyCheckResult(isConnected = false, error = ProxyCheckError.TIMEOUT)
-                else ProxyCheckResult(isConnected = false, error = ProxyCheckError.CONNECT_FAILED)
+                if (timedOut.get() || e is SocketTimeoutException) timeoutResult else connectFailed
             } finally {
                 watchdog.cancel()
                 runCatching { socket.close() }
@@ -410,25 +436,44 @@ class MTProxyChecker(val timeout: Double = PROXY_PING_TIMEOUT, val dcId: Int = 2
         }
     }
 
+    private sealed interface DnsResult {
+        class Ok(val address: InetAddress) : DnsResult
+        data object Failed : DnsResult
+        data object TimedOut : DnsResult
+    }
+
+    private suspend fun resolve(host: String, deadline: Long): DnsResult {
+        val lookup = dnsScope.async { InetAddress.getByName(host) }
+        return try {
+            withTimeoutOrNull(remainingMs(deadline)) { lookup.await() }
+                ?.let { DnsResult.Ok(it) }
+                ?: DnsResult.TimedOut.also { lookup.cancel() }
+        } catch (e: IOException) { // UnknownHostException и т.п.
+            DnsResult.Failed
+        } catch (e: SecurityException) {
+            DnsResult.Failed
+        }
+    }
+
+    private fun remainingMs(deadline: Long): Long = ((deadline - System.nanoTime()) / 1_000_000).coerceAtLeast(1)
+
     private fun doCheck(
         socket: Socket,
-        host: String,
-        port: Int,
+        address: InetSocketAddress,
         secret: MTProxySecret,
         timedOut: AtomicBoolean,
+        startedAt: Long,
+        deadline: Long,
     ): ProxyCheckResult {
         val timeoutResult = ProxyCheckResult(isConnected = false, error = ProxyCheckError.TIMEOUT)
-        val startedAt = System.nanoTime()
         try {
-            val address = InetSocketAddress(host, port)
             if (timedOut.get()) return timeoutResult
-            if (address.isUnresolved) throw java.net.UnknownHostException(host)
             socket.tcpNoDelay = true
-            socket.connect(address)
+            // Таймауты на самом сокете: даже если сторож запоздает, connect/read не повиснут дольше дедлайна.
+            socket.connect(address, remainingMs(deadline).coerceAtMost(Int.MAX_VALUE.toLong()).toInt())
+            socket.soTimeout = remainingMs(deadline).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
         } catch (e: IOException) {
-            if (timedOut.get()) return timeoutResult
-            return ProxyCheckResult(isConnected = false, error = ProxyCheckError.CONNECT_FAILED)
-        } catch (e: IllegalArgumentException) { // порт вне диапазона — в Python это тоже OSError/OverflowError при коннекте
+            if (timedOut.get() || e is SocketTimeoutException) return timeoutResult
             return ProxyCheckResult(isConnected = false, error = ProxyCheckError.CONNECT_FAILED)
         }
 

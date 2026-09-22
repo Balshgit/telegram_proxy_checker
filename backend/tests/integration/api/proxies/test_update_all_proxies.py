@@ -16,6 +16,7 @@ from tests.integration.api.proxies.helpers import (
     CHUNK_SIZE_FOR_TESTS,
     build_proxy_url,
     deferred_source_urls,
+    deferred_source_urls_by_call,
     get_proxies_by_id,
     get_proxies_by_name,
     mocked_get_host_latency_by_server,
@@ -32,6 +33,9 @@ FIRST_PROXY_SERVER = "1.2.3.4"
 SECOND_PROXY_SERVER = "5.6.7.8"
 
 PROXIES_OVER_CHUNK_SIZE = 2
+
+#: Хвост на два полных чанка и ещё один урл: сервис должен разложить его на три задачи.
+PROXIES_OVER_SEVERAL_CHUNKS = CHUNK_SIZE_FOR_TESTS * 2 + 1
 
 #: Прежнее время активности прокси. Заведомо старое: весь тест идёт в одной транзакции,
 #: а `func.now()` в постгресе — это её начало, поэтому «сдвинулось ли время вперёд»
@@ -604,3 +608,49 @@ async def test_update_all_proxies_moves_last_active_at_of_a_still_active_proxy(
     assert updated_proxy.status == ProxyStatusEnum.enabled
     assert updated_proxy.last_active_at is not None
     assert updated_proxy.last_active_at > WAS_ACTIVE_AT
+
+
+async def test_update_all_proxies_splits_tail_into_task_per_chunk(
+    rest_client: AsyncClient,
+    db_rollback_session: AsyncSession,
+    sqlalchemy_model_factory_maker: Callable[
+        [type[SQLAlchemyFactory], AsyncSession], Awaitable[type[SQLAlchemyFactory]]
+    ],
+) -> None:
+    """
+    Хвост больше чанка уезжает в taskiq несколькими задачами, по чанку на задачу.
+
+    Одна задача на весь хвост не укладывалась в таймаут воркера и падала с `deadline exceeded`.
+    """
+    proxy_factory = await sqlalchemy_model_factory_maker(factory_cls=TelegramProxyFactory, session=db_rollback_session)
+
+    total_proxies = CHUNK_SIZE_FOR_TESTS + PROXIES_OVER_SEVERAL_CHUNKS
+    all_servers = [f"10.0.0.{number}" for number in range(total_proxies)]
+
+    for server in all_servers:
+        await proxy_factory.create_async(
+            name=server, url=build_proxy_url(server=server), status=ProxyStatusEnum.disabled, latency=None
+        )
+
+    async with (
+        mocked_save_postgres_chunk_size(),
+        mocked_get_host_latency_by_server(default_latency=55) as mocked_latency,
+        mocked_taskiq_run() as mocked_taskiq,
+    ):
+        response = await rest_client.post("/api/proxies/status")
+
+    assert response.status_code == status.HTTP_200_OK, response.text
+
+    pinged_servers = set(pinged_source_id_by_server(mocked_latency))
+    assert len(pinged_servers) == CHUNK_SIZE_FOR_TESTS
+
+    assert mocked_taskiq.await_count == 3
+    assert all(call.args[0] is update_proxies_in_database_task for call in mocked_taskiq.await_args_list)
+
+    chunks = deferred_source_urls_by_call(mocked_taskiq)
+    assert [len(chunk) for chunk in chunks] == [CHUNK_SIZE_FOR_TESTS, CHUNK_SIZE_FOR_TESTS, 1]
+
+    deferred_servers = [URL(item["url"]).params["server"] for chunk in chunks for item in chunk]
+    assert len(deferred_servers) == len(set(deferred_servers)) == PROXIES_OVER_SEVERAL_CHUNKS
+    assert pinged_servers.isdisjoint(deferred_servers)
+    assert pinged_servers | set(deferred_servers) == set(all_servers)
