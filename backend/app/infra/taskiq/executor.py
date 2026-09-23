@@ -16,7 +16,7 @@ class TaskiqTasksExecutor:
         self, func: Callable[..., Any], params: dict[str, Any], execution_options: dict[str, Any] | None = None
     ) -> AsyncTaskiqTask[Any]:
         task_name = taskiq_tasks.get_task_name(func)
-        logger.info("creating taskiq task", task_name=task_name, params=params)
+        logger.info("creating taskiq task", task_name=task_name)
         task = self.broker.find_task(task_name)
         if not task:
             # task is not found in broker known tasks, mb you forgot to register it, check taskiq_tasks list
