@@ -8,7 +8,12 @@ from sqlakeyset import Page
 
 from app.core.concurrency import run_async
 from app.core.pagination import OffsetPagination
-from app.core.proxies.constants import SAVE_POSTGRES_CHUNK_SIZE, ProxyOrderByEnum, ProxyStatusEnum
+from app.core.proxies.constants import (
+    PROXY_TASKIQ_CHUNK_SIZE,
+    SAVE_POSTGRES_CHUNK_SIZE,
+    ProxyOrderByEnum,
+    ProxyStatusEnum,
+)
 from app.core.proxies.dto import ProxyDTO, ProxyFilterDTO, ProxySourceToPingDTO, ProxyWithCountersDTO
 from app.core.proxies.exceptions import NoProxiesAddedException
 from app.core.proxies.models import TelegramProxy
@@ -211,5 +216,5 @@ class ProxyService:
         и при нескольких тысячах прокси задача не успевала и падала с `deadline exceeded`.
         Задача на чанк укладывается в одну пачку проверок (не дольше таймаута `run_async`) и запись в базу.
         """
-        for urls_chunk in batched(urls, SAVE_POSTGRES_CHUNK_SIZE):  # noqa: B911
+        for urls_chunk in batched(urls, PROXY_TASKIQ_CHUNK_SIZE):  # noqa: B911
             await self.taskiq_tasks_executor.run(task, params={"source_urls": [su.to_dict() for su in urls_chunk]})

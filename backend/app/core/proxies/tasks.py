@@ -27,12 +27,14 @@ async def save_proxies_to_database_task(
     proxy_repository: ProxyRepository = context.state.container.repositories.proxy_repository()
     proxy_source_service: ProxySourceService = context.state.container.services.proxy_source_service()
 
+    new_proxies = []
     for urls_chunk in batched(source_urls_dtos, SAVE_POSTGRES_CHUNK_SIZE):  # noqa: B911
         proxies = await github_gateway.get_host_latency_for_urls(urls_with_source=list(urls_chunk))
+        new_proxies.extend(proxies)
 
-        async with proxy_repository.get_transactional_session() as session:
-            await proxy_repository.save_proxies(proxies_dto=proxies, session=session)
-            await proxy_source_service.recalculate_counters(source_ids=collect_source_ids(proxies), session=session)
+    async with proxy_repository.get_transactional_session() as session:
+        await proxy_repository.save_proxies(proxies_dto=new_proxies, session=session)
+        await proxy_source_service.recalculate_counters(source_ids=collect_source_ids(new_proxies), session=session)
 
 
 @log_taskiq_decorator
@@ -45,12 +47,14 @@ async def update_proxies_in_database_task(
     proxy_repository: ProxyRepository = context.state.container.repositories.proxy_repository()
     proxy_source_service: ProxySourceService = context.state.container.services.proxy_source_service()
 
+    updated_proxies = []
     for urls_chunk in batched(source_urls_dtos, SAVE_POSTGRES_CHUNK_SIZE):  # noqa: B911
         proxies = await github_gateway.get_host_latency_for_urls(urls_with_source=list(urls_chunk))
+        updated_proxies.extend(proxies)
 
-        async with proxy_repository.get_transactional_session() as session:
-            await proxy_repository.update_proxies(proxies_dto=proxies, session=session)
-            await proxy_source_service.recalculate_counters(source_ids=collect_source_ids(proxies), session=session)
+    async with proxy_repository.get_transactional_session() as session:
+        await proxy_repository.update_proxies(proxies_dto=updated_proxies, session=session)
+        await proxy_source_service.recalculate_counters(source_ids=collect_source_ids(updated_proxies), session=session)
 
 
 @log_taskiq_decorator

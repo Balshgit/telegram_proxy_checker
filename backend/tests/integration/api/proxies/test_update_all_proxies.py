@@ -644,12 +644,10 @@ async def test_update_all_proxies_splits_tail_into_task_per_chunk(
     pinged_servers = set(pinged_source_id_by_server(mocked_latency))
     assert len(pinged_servers) == CHUNK_SIZE_FOR_TESTS
 
-    assert mocked_taskiq.await_count == 3
+    assert mocked_taskiq.await_count == 1
     assert all(call.args[0] is update_proxies_in_database_task for call in mocked_taskiq.await_args_list)
 
     chunks = deferred_source_urls_by_call(mocked_taskiq)
-    assert [len(chunk) for chunk in chunks] == [CHUNK_SIZE_FOR_TESTS, CHUNK_SIZE_FOR_TESTS, 1]
-
     deferred_servers = [URL(item["url"]).params["server"] for chunk in chunks for item in chunk]
     assert len(deferred_servers) == len(set(deferred_servers)) == PROXIES_OVER_SEVERAL_CHUNKS
     assert pinged_servers.isdisjoint(deferred_servers)
