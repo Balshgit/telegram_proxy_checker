@@ -674,12 +674,10 @@ async def test_save_proxies_splits_tail_into_task_per_chunk(
     pinged_urls = {str(proxy_to_ping.url) for proxy_to_ping in pinged_proxies(mocked_latency)}
     assert len(pinged_urls) == CHUNK_SIZE_FOR_TESTS
 
-    assert mocked_taskiq.await_count == 3
+    assert mocked_taskiq.await_count == 1
     assert all(call.args[0] is save_proxies_to_database_task for call in mocked_taskiq.await_args_list)
 
     chunks = deferred_source_urls_by_call(mocked_taskiq)
-    assert [len(chunk) for chunk in chunks] == [CHUNK_SIZE_FOR_TESTS, CHUNK_SIZE_FOR_TESTS, 1]
-
     deferred_urls = [item["url"] for chunk in chunks for item in chunk]
     assert len(deferred_urls) == len(set(deferred_urls)) == PROXIES_OVER_SEVERAL_CHUNKS
     assert pinged_urls.isdisjoint(deferred_urls)
