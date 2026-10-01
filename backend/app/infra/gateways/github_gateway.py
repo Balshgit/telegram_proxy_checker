@@ -73,4 +73,5 @@ class GithubGateway:
 
     @staticmethod
     def _get_params_from_proxy(params: QueryParams) -> ProxyServerDTO:
-        return ProxyServerDTO(host=params.get("server"), port=params.get("port"), secret=params.get("secret", ""))
+        host = params.get("server", "")
+        return ProxyServerDTO(host=host[:200], port=params.get("port"), secret=params.get("secret", ""))
