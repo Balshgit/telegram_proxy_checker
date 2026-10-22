@@ -62,9 +62,11 @@ class GithubGateway:
         return list(proxies_dtos)
 
     async def _get_proxies_urls_from_github(self, url: URL) -> list[URL]:
-        response = await self.github_http_adapter.send_request_and_raise_for_status(method=HTTPMethod.GET, url=url.path)
         urls = []
         try:
+            response = await self.github_http_adapter.send_request_and_raise_for_status(
+                method=HTTPMethod.GET, url=url.path
+            )
             content = response.content.decode()
             urls = [URL(url) for url in content.split("\n")]
         except HTTPStatusError as exc:

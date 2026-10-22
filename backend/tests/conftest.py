@@ -173,6 +173,12 @@ async def db_rollback_session(
 
 
 @pytest.fixture(autouse=True)
+def _no_wait_before_collect_proxies(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Skip the delay before collecting proxies so that tests don't sleep."""
+    monkeypatch.setattr("app.core.proxies.services.WAIT_BEFORE_COLLECT_PROXIES_SECONDS", 0)
+
+
+@pytest.fixture(autouse=True)
 def _reset_faker_unique(test_settings: AppTestSettings) -> Generator[None]:
     """Drop polyfactory's faker unique cache in order to avoid faker.exceptions.UniquenessException."""
     test_settings.TESTS_CALL_COUNT += 1

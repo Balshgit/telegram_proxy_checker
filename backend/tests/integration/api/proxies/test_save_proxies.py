@@ -1,6 +1,7 @@
 from collections.abc import Awaitable, Callable
 
-from httpx import URL, AsyncClient
+import pytest
+from httpx import URL, AsyncClient, ConnectError, ReadTimeout, Response
 from polyfactory.factories.sqlalchemy_factory import SQLAlchemyFactory
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -147,6 +148,131 @@ async def test_save_new_proxies_from_several_sources(
     )
 
     assert {url: proxy.source_id for url, proxy in proxies_in_db.items()} == expected_source_id_by_url
+
+
+@pytest.mark.parametrize(
+    "failed_source_answer",
+    [
+        Response(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR),
+        Response(status_code=status.HTTP_404_NOT_FOUND),
+        Response(status_code=status.HTTP_429_TOO_MANY_REQUESTS),
+        ConnectError,
+        ReadTimeout,
+    ],
+    ids=["500", "404", "429", "connect_error", "read_timeout"],
+)
+async def test_save_new_proxies_when_one_source_failed(
+    rest_client: AsyncClient,
+    db_rollback_session: AsyncSession,
+    sqlalchemy_model_factory_maker: Callable[
+        [type[SQLAlchemyFactory], AsyncSession], Awaitable[type[SQLAlchemyFactory]]
+    ],
+    failed_source_answer: Response | type[Exception],
+) -> None:
+    """
+    Упавший источник не должен ронять сбор проксей целиком.
+
+    Github по одному источнику отвечает ошибкой или не отвечает вовсе — сервис пропускает его
+    и сохраняет прокси из остальных источников. Упавший источник создаётся первым,
+    чтобы проверить, что обход продолжается и после ошибки.
+    """
+    proxies_source_factory = await sqlalchemy_model_factory_maker(
+        factory_cls=TelegramProxiesSourceFactory, session=db_rollback_session
+    )
+
+    failed_source = await proxies_source_factory.create_async(status=ProxySourceStatusEnum.enabled)
+    first_alive_source = await proxies_source_factory.create_async(status=ProxySourceStatusEnum.enabled)
+    second_alive_source = await proxies_source_factory.create_async(status=ProxySourceStatusEnum.enabled)
+    first_alive_source_id, second_alive_source_id = first_alive_source.id, second_alive_source.id
+
+    first_alive_source_urls = [build_proxy_url(server=f"10.0.0.{number}") for number in range(2)]
+    second_alive_source_urls = [build_proxy_url(server=f"10.0.1.{number}") for number in range(3)]
+    alive_urls = first_alive_source_urls + second_alive_source_urls
+
+    github_answer_by_source: dict[str, str | Response | type[Exception]] = {
+        failed_source.url: failed_source_answer,
+        first_alive_source.url: "\n".join(first_alive_source_urls),
+        second_alive_source.url: "\n".join(second_alive_source_urls),
+    }
+
+    async with (
+        mocked_github_get_proxies_by_source(github_answer_by_source) as mocked_github,
+        mocked_get_host_latency_for_urls(default_latency=42) as mocked_latency,
+    ):
+        response = await rest_client.post("/api/proxies")
+
+        # В каждый источник, включая упавший, сходили ровно один раз.
+        for source_url in github_answer_by_source:
+            assert mocked_github.routes[source_route_name(source_url)].call_count == 1
+
+    assert response.status_code == status.HTTP_201_CREATED, response.text
+    assert response.content == b"null"
+
+    # Пингуются только урлы из живых источников.
+    mocked_latency.assert_awaited_once()
+    assert sorted(str(proxy_to_ping.url) for proxy_to_ping in pinged_proxies(mocked_latency)) == sorted(alive_urls)
+
+    proxies_in_db = await get_proxies_by_url(db_rollback_session)
+
+    assert sorted(proxies_in_db) == sorted(alive_urls)
+
+    expected_source_id_by_url = dict.fromkeys(first_alive_source_urls, first_alive_source_id) | dict.fromkeys(
+        second_alive_source_urls, second_alive_source_id
+    )
+
+    assert {url: proxy.source_id for url, proxy in proxies_in_db.items()} == expected_source_id_by_url
+
+
+@pytest.mark.parametrize(
+    "failed_source_answer",
+    [
+        Response(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR),
+        ConnectError,
+    ],
+    ids=["500", "connect_error"],
+)
+async def test_save_new_proxies_when_all_sources_failed(
+    rest_client: AsyncClient,
+    db_rollback_session: AsyncSession,
+    sqlalchemy_model_factory_maker: Callable[
+        [type[SQLAlchemyFactory], AsyncSession], Awaitable[type[SQLAlchemyFactory]]
+    ],
+    failed_source_answer: Response | type[Exception],
+) -> None:
+    """Если урлы не удалось получить ни из одного источника — добавлять нечего, пинг не запускается."""
+    proxies_source_factory = await sqlalchemy_model_factory_maker(
+        factory_cls=TelegramProxiesSourceFactory, session=db_rollback_session
+    )
+
+    first_source = await proxies_source_factory.create_async(status=ProxySourceStatusEnum.enabled)
+    second_source = await proxies_source_factory.create_async(status=ProxySourceStatusEnum.enabled)
+
+    github_answer_by_source: dict[str, str | Response | type[Exception]] = {
+        first_source.url: failed_source_answer,
+        second_source.url: failed_source_answer,
+    }
+
+    async with (
+        mocked_github_get_proxies_by_source(github_answer_by_source) as mocked_github,
+        mocked_get_host_latency_for_urls(default_latency=42) as mocked_latency,
+    ):
+        response = await rest_client.post("/api/proxies")
+
+        for source_url in github_answer_by_source:
+            assert mocked_github.routes[source_route_name(source_url)].call_count == 1
+
+    assert response.status_code == status.HTTP_202_ACCEPTED, response.text
+    assert response.json()["error"] == {
+        "meta": {"message": None},
+        "type": "NoProxiesAddedError",
+        "title": "No proxies to add",
+    }
+
+    mocked_latency.assert_not_awaited()
+
+    proxies_in_db = (await db_rollback_session.execute(select(TelegramProxy))).scalars().all()
+
+    assert proxies_in_db == []
 
 
 async def test_save_new_proxies_ignores_disabled_source(

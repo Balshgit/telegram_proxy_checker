@@ -179,22 +179,32 @@ def source_route_name(source_url: str) -> str:
 
 
 @asynccontextmanager
-async def mocked_github_get_proxies_by_source(raw_proxies_by_source: Mapping[str, str]) -> AsyncGenerator[MockRouter]:
+async def mocked_github_get_proxies_by_source(
+    raw_proxies_by_source: Mapping[str, str | Response | type[Exception]],
+) -> AsyncGenerator[MockRouter]:
     """
     То же, что `mocked_github_get_proxies`, но сразу для нескольких источников.
 
-    :param raw_proxies_by_source: мапа {url источника: сырой ответ со списком проксей}.
+    :param raw_proxies_by_source: мапа {url источника: что вернёт github}. Значение может быть:
+        * `str` — сырой ответ со списком проксей (200 OK);
+        * `Response` — ответ как есть, например с ошибочным статусом;
+        * класс исключения — запрос упадёт с ним, например `httpx.ConnectError`.
 
     Каждый источник получает свой роут с именем `source_route_name(source_url)`.
     Проверки `mock.calls` / `mock.routes[...]` должны быть ВНУТРИ `async with`: на выходе respx
     делает `router.reset()` и чистит счётчики.
     """
     async with respx.mock(assert_all_mocked=True, base_url=GITHUB_RAW_BASE_URL) as respx_mock:
-        for source_url, raw_proxies in raw_proxies_by_source.items():
+        for source_url, github_answer in raw_proxies_by_source.items():
             route = respx_mock.get(url=source_url, name=source_route_name(source_url))
-            route.return_value = Response(
-                status_code=200, headers={"Content-Type": PLAIN_TEXT_MEDIA_TYPE}, content=raw_proxies
-            )
+            if isinstance(github_answer, str):
+                route.return_value = Response(
+                    status_code=200, headers={"Content-Type": PLAIN_TEXT_MEDIA_TYPE}, content=github_answer
+                )
+            elif isinstance(github_answer, Response):
+                route.return_value = github_answer
+            else:
+                route.side_effect = github_answer
         yield respx_mock
 
 
