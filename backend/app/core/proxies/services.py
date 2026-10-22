@@ -1,12 +1,12 @@
+import asyncio
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import timedelta
-from itertools import batched, chain
+from itertools import batched
 from typing import Any
 
 from sqlakeyset import Page
 
-from app.core.concurrency import run_async
 from app.core.pagination import OffsetPagination
 from app.core.proxies.constants import (
     PROXY_TASKIQ_CHUNK_SIZE,
@@ -20,7 +20,7 @@ from app.core.proxies.models import TelegramProxy
 from app.core.proxies.repositories import ProxyRepository
 from app.core.proxies.tasks import save_proxies_to_database_task, update_proxies_in_database_task
 from app.core.proxies.utils import collect_source_ids, split_duplicated_proxies, to_web_proxy_url
-from app.core.proxies_sources.constants import ProxySourceStatusEnum
+from app.core.proxies_sources.constants import WAIT_BEFORE_COLLECT_PROXIES_SECONDS, ProxySourceStatusEnum
 from app.core.proxies_sources.services import ProxySourceService
 from app.infra.gateways.github_gateway import GithubGateway
 from app.infra.taskiq.executor import TaskiqTasksExecutor
@@ -98,9 +98,11 @@ class ProxyService:
             status=ProxySourceStatusEnum.enabled, sources_ids=sources_ids
         )
 
-        coros = [self.github_gateway.get_urls_for_ping(proxy_source=ps) for ps in proxy_sources]
-
-        new_proxies_url_lists = list(chain.from_iterable(await run_async(*coros))) if coros else []
+        new_proxies_url_lists = []
+        for ps in proxy_sources:
+            proxy_list = await self.github_gateway.get_urls_for_ping(proxy_source=ps)
+            new_proxies_url_lists.extend(proxy_list)
+            await asyncio.sleep(WAIT_BEFORE_COLLECT_PROXIES_SECONDS)
 
         existing_proxies = await self.repository.get_all_proxies()
 
